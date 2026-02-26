@@ -1,23 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import dynamic from 'next/dynamic'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-
-function TabLoader() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 320, color: '#3e5268', fontSize: 13 }}>
-      Loading…
-    </div>
-  )
-}
-
-const SummaryTab      = dynamic(() => import('@/components/SummaryTab'),      { ssr: false, loading: TabLoader })
-const OverviewTab     = dynamic(() => import('@/components/OverviewTab'),     { ssr: false, loading: TabLoader })
-const CorrelationsTab = dynamic(() => import('@/components/CorrelationsTab'), { ssr: false, loading: TabLoader })
-const DomainTab       = dynamic(() => import('@/components/DomainTab'),       { ssr: false, loading: TabLoader })
-const M1vsM3Tab       = dynamic(() => import('@/components/M1vsM3Tab'),       { ssr: false, loading: TabLoader })
-const MailboxTab      = dynamic(() => import('@/components/MailboxTab'),      { ssr: false, loading: TabLoader })
+import SummaryTab      from '@/components/SummaryTab'
+import OverviewTab     from '@/components/OverviewTab'
+import CorrelationsTab from '@/components/CorrelationsTab'
+import DomainTab       from '@/components/DomainTab'
+import M1vsM3Tab       from '@/components/M1vsM3Tab'
+import MailboxTab      from '@/components/MailboxTab'
 
 const TABS = [
   { id: 'summary',      label: 'Summary' },
