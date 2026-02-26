@@ -3,12 +3,20 @@
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
 
-const SummaryTab      = dynamic(() => import('@/components/SummaryTab'),      { ssr: false })
-const OverviewTab     = dynamic(() => import('@/components/OverviewTab'),     { ssr: false })
-const CorrelationsTab = dynamic(() => import('@/components/CorrelationsTab'), { ssr: false })
-const DomainTab       = dynamic(() => import('@/components/DomainTab'),       { ssr: false })
-const M1vsM3Tab       = dynamic(() => import('@/components/M1vsM3Tab'),       { ssr: false })
-const MailboxTab      = dynamic(() => import('@/components/MailboxTab'),      { ssr: false })
+function TabLoader() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 320, color: '#3e5268', fontSize: 13 }}>
+      Loading…
+    </div>
+  )
+}
+
+const SummaryTab      = dynamic(() => import('@/components/SummaryTab'),      { ssr: false, loading: TabLoader })
+const OverviewTab     = dynamic(() => import('@/components/OverviewTab'),     { ssr: false, loading: TabLoader })
+const CorrelationsTab = dynamic(() => import('@/components/CorrelationsTab'), { ssr: false, loading: TabLoader })
+const DomainTab       = dynamic(() => import('@/components/DomainTab'),       { ssr: false, loading: TabLoader })
+const M1vsM3Tab       = dynamic(() => import('@/components/M1vsM3Tab'),       { ssr: false, loading: TabLoader })
+const MailboxTab      = dynamic(() => import('@/components/MailboxTab'),      { ssr: false, loading: TabLoader })
 
 const TABS = [
   { id: 'summary',      label: 'Summary' },
