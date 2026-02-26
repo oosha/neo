@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 function TabLoader() {
   return (
@@ -72,12 +73,14 @@ export default function M3Correlation() {
       </div>
 
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 32px' }}>
-        {activeTab === 'summary'      && <SummaryTab />}
-        {activeTab === 'overview'     && <OverviewTab />}
-        {activeTab === 'correlations' && <CorrelationsTab />}
-        {activeTab === 'domain'       && <DomainTab />}
-        {activeTab === 'm1m3'         && <M1vsM3Tab />}
-        {activeTab === 'mailbox'      && <MailboxTab />}
+        <ErrorBoundary>
+          {activeTab === 'summary'      && <SummaryTab />}
+          {activeTab === 'overview'     && <OverviewTab />}
+          {activeTab === 'correlations' && <CorrelationsTab />}
+          {activeTab === 'domain'       && <DomainTab />}
+          {activeTab === 'm1m3'         && <M1vsM3Tab />}
+          {activeTab === 'mailbox'      && <MailboxTab />}
+        </ErrorBoundary>
       </div>
     </div>
   )
