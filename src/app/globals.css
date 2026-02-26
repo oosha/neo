@@ -1,0 +1,33 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0e1117;
+  --bg-card:   #131b26;
+  --border:    #1e2b3c;
+  --border-hi: #283a50;
+  --text:      #8d9baa;
+  --text-hi:   #a8b5c0;
+  --text-sub:  #3e5268;
+  --cyan:      #4da898;
+  --pink:      #a86070;
+  --purple:    #6060a0;
+  --amber:     #a87a40;
+  --green:     #407a68;
+  --grid:      #172030;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Nunito', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+select, button, input { font-family: inherit; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a4e6a; }
