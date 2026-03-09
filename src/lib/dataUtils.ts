@@ -72,7 +72,7 @@ export const UTM_LABELS: { [k: string]: string } = {
   utm_source_neo_hooks:       'Neo Hooks',
   utm_source_neo_referral:    'Neo Referral',
   utm_source_performance_max: 'Performance Max',
-  utm_source_referral:        'Referral',
+  utm_source_referral:        'Marketing Referral',
   utm_source_others:          'Others',
   utm_source_ai_llm:          'AI / LLM',
 }
