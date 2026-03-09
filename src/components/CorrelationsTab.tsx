@@ -13,7 +13,7 @@ import {
 
 const C = {
   card: '#131b26', border: '#1e2b3c', grid: '#172030',
-  text: '#8d9baa', bright: '#a8b5c0', sub: '#3e5268', dim: '#1e2b3c',
+  text: '#8d9baa', bright: '#a8b5c0', sub: '#7a95ae', dim: '#1e2b3c',
   cyan: '#4da898', pink: '#a86070', purple: '#6060a0', green: '#407a68', amber: '#a87a40',
 }
 const POS = C.cyan
@@ -114,7 +114,7 @@ export default function CorrelationsTab() {
             { label: 'Domain Type',      value: domainType, onChange: setDomainType, opts: DOMAIN_TYPES.map(d => ({ v: d, l: DOMAIN_LABELS[d] })) },
             { label: 'Segment',          value: segment,    onChange: setSegment,    opts: SEGMENTS.map(s => ({ v: s, l: SEGMENT_LABELS[s] })) },
             { label: 'Show',             value: showMode,   onChange: setShowMode,   opts: [{ v: 'both', l: 'Top & Bottom' }, { v: 'top', l: 'Top Positive' }, { v: 'bottom', l: 'Top Negative' }] },
-            { label: 'Features shown',   value: topN,       onChange: (v: any) => setTopN(Number(v)), opts: [10, 20, 30, 40].map(n => ({ v: n, l: String(n) })) },
+            { label: 'Features shown',   value: topN,       onChange: (v: any) => setTopN(Number(v)), opts: [10, 20, 30, 40, 100].map(n => ({ v: n, l: String(n) })) },
           ].map(({ label, value, onChange, opts }) => (
             <div key={label}>
               <label style={{ fontSize: 11, color: C.sub, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</label>

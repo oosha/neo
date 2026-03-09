@@ -20,7 +20,7 @@ const TABS = [
 
 const C = {
   bg: '#0e1117', header: '#0b0f19', border: '#1e2b3c',
-  textHi: '#a8b5c0', sub: '#3e5268', cyan: '#4da898',
+  textHi: '#a8b5c0', sub: '#7a95ae', cyan: '#4da898',
 }
 
 export default function M3Correlation() {

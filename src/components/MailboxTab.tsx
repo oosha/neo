@@ -13,7 +13,7 @@ import { cleanFeatLabel } from '@/lib/dataUtils'
 
 const C = {
   card: '#131b26', border: '#1e2b3c', grid: '#172030',
-  text: '#8d9baa', bright: '#a8b5c0', sub: '#3e5268',
+  text: '#8d9baa', bright: '#a8b5c0', sub: '#7a95ae',
   cyan: '#4da898', pink: '#a86070', purple: '#6060a0',
   amber: '#a87a40', green: '#407a68',
 }

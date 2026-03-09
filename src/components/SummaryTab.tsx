@@ -8,7 +8,7 @@ import {
 
 const C = {
   bg: '#0e1117', card: '#1a2332', border: '#1e2b3c',
-  textHi: '#a8b5c0', sub: '#3e5268', accent: '#4da898',
+  textHi: '#a8b5c0', sub: '#7a95ae', accent: '#4da898',
   green: '#238636', red: '#da3633', orange: '#d98e00',
 }
 
@@ -201,7 +201,7 @@ export default function SummaryTab() {
           Cohort Overview
         </div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <KPICard label="Total Orders" value={overallOrders.toLocaleString()} />
+          <KPICard label="Total Orders" value={overallOrders.toLocaleString()} subtext="on monthly billing" />
           <KPICard label="M3 Renewal Rate" value={formatRate(overallM3Rate)} highlight />
           <KPICard label="M1 Received Rate" value={formatRate(overallM1Rate)} />
           <KPICard label="M1→M3 Drop" value={`-${(m1ToM3Drop * 100).toFixed(1)}%`} subtext="Cohort decline" />
