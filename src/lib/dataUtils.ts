@@ -69,7 +69,7 @@ export const UTM_LABELS: { [k: string]: string } = {
   utm_source_google:          'Google',
   utm_source_facebook:        'Facebook',
   utm_source_youtube:         'YouTube',
-  utm_source_neo_hooks:       'Neo Hooks',
+  utm_source_neo_hooks:       'Organic Hooks',
   utm_source_neo_referral:    'Neo Referral',
   utm_source_performance_max: 'Performance Max',
   utm_source_referral:        'Marketing Referral',
