@@ -8,6 +8,7 @@ import {
 import {
   m3, getFeatureRows, getCorrelation, getReach,
   DOMAIN_TYPES, DOMAIN_LABELS, SEGMENTS, SEGMENT_LABELS,
+  UTM_SOURCES, UTM_LABELS,
   cleanFeatLabel, formatCorr, formatReach
 } from '@/lib/dataUtils'
 
@@ -64,11 +65,14 @@ const SelectStyle: React.CSSProperties = {
 
 export default function CorrelationsTab() {
   const [domainType, setDomainType] = useState('overall')
+  const [utmSource,  setUtmSource]  = useState('all')
   const [segment,    setSegment]    = useState('overall')
   const [topN,       setTopN]       = useState(20)
   const [showMode,   setShowMode]   = useState<'top' | 'bottom' | 'both'>('both')
 
-  const featureRows = useMemo(() => getFeatureRows(m3, domainType), [domainType])
+  const effectivePartner = utmSource !== 'all' ? utmSource : domainType
+
+  const featureRows = useMemo(() => getFeatureRows(m3, effectivePartner), [effectivePartner])
 
   const ranked = useMemo(() =>
     featureRows
@@ -110,11 +114,27 @@ export default function CorrelationsTab() {
         <div style={{ fontSize: 16, fontWeight: 700, color: C.bright, marginBottom: 4 }}>Explore Feature Correlations</div>
         <div style={{ fontSize: 12, color: C.text, fontStyle: 'italic', marginBottom: 12 }}>Features used in the first 30 days — higher correlation means stronger link to M3 renewal outcome.</div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          {/* Traffic Source — when set, overrides Domain Type */}
+          <div>
+            <label style={{ fontSize: 11, color: C.sub, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Traffic Source</label>
+            <select style={SelectStyle} value={utmSource} onChange={e => setUtmSource(e.target.value)}>
+              <option value="all">All sources</option>
+              {UTM_SOURCES.map(s => <option key={s} value={s}>{UTM_LABELS[s]}</option>)}
+            </select>
+          </div>
+
+          {/* Domain Type — only active when Traffic Source = All */}
+          <div style={{ opacity: utmSource !== 'all' ? 0.4 : 1, pointerEvents: utmSource !== 'all' ? 'none' : 'auto' }}>
+            <label style={{ fontSize: 11, color: C.sub, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Domain Type</label>
+            <select style={SelectStyle} value={domainType} onChange={e => setDomainType(e.target.value)}>
+              {DOMAIN_TYPES.map(d => <option key={d} value={d}>{DOMAIN_LABELS[d]}</option>)}
+            </select>
+          </div>
+
           {[
-            { label: 'Domain Type',      value: domainType, onChange: setDomainType, opts: DOMAIN_TYPES.map(d => ({ v: d, l: DOMAIN_LABELS[d] })) },
-            { label: 'Segment',          value: segment,    onChange: setSegment,    opts: SEGMENTS.map(s => ({ v: s, l: SEGMENT_LABELS[s] })) },
-            { label: 'Show',             value: showMode,   onChange: setShowMode,   opts: [{ v: 'both', l: 'Top & Bottom' }, { v: 'top', l: 'Top Positive' }, { v: 'bottom', l: 'Top Negative' }] },
-            { label: 'Features shown',   value: topN,       onChange: (v: any) => setTopN(Number(v)), opts: [10, 20, 30, 40, 100].map(n => ({ v: n, l: String(n) })) },
+            { label: 'Segment',        value: segment,  onChange: setSegment,  opts: SEGMENTS.map(s => ({ v: s, l: SEGMENT_LABELS[s] })) },
+            { label: 'Show',           value: showMode, onChange: setShowMode, opts: [{ v: 'both', l: 'Top & Bottom' }, { v: 'top', l: 'Top Positive' }, { v: 'bottom', l: 'Top Negative' }] },
+            { label: 'Features shown', value: topN,     onChange: (v: any) => setTopN(Number(v)), opts: [10, 20, 30, 40, 100].map(n => ({ v: n, l: String(n) })) },
           ].map(({ label, value, onChange, opts }) => (
             <div key={label}>
               <label style={{ fontSize: 11, color: C.sub, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</label>
@@ -129,7 +149,7 @@ export default function CorrelationsTab() {
       {/* Chart */}
       <div>
         <div style={{ fontSize: 16, fontWeight: 700, color: C.bright, marginBottom: 2 }}>
-          Feature Correlations with M3 Renewal — {DOMAIN_LABELS[domainType]}, {SEGMENT_LABELS[segment]}
+          Feature Correlations with M3 Renewal — {utmSource !== 'all' ? UTM_LABELS[utmSource] : DOMAIN_LABELS[domainType]}, {SEGMENT_LABELS[segment]}
         </div>
         <div style={{ fontSize: 12, color: C.sub, marginBottom: 16 }}>
           Pearson correlation between feature usage and renewal outcome. Hover for reach.

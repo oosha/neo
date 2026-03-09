@@ -5,17 +5,19 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import SummaryTab      from '@/components/SummaryTab'
 import OverviewTab     from '@/components/OverviewTab'
 import CorrelationsTab from '@/components/CorrelationsTab'
-import DomainTab       from '@/components/DomainTab'
-import M1vsM3Tab       from '@/components/M1vsM3Tab'
+import DomainTab          from '@/components/DomainTab'
+import TrafficSourceTab   from '@/components/TrafficSourceTab'
+import M1vsM3Tab          from '@/components/M1vsM3Tab'
 import MailboxTab      from '@/components/MailboxTab'
 
 const TABS = [
-  { id: 'summary',      label: 'Summary' },
-  { id: 'overview',     label: 'Renewals' },
-  { id: 'correlations', label: 'Feature Correlations' },
-  { id: 'domain',       label: 'Domain Type' },
-  { id: 'm1m3',         label: 'M1 vs M3' },
-  { id: 'mailbox',      label: 'Mailbox Seats' },
+  { id: 'summary',        label: 'Summary' },
+  { id: 'overview',       label: 'Renewals' },
+  { id: 'correlations',   label: 'Feature Correlations' },
+  { id: 'domain',         label: 'Domain Type' },
+  { id: 'traffic',        label: 'Traffic Source' },
+  { id: 'm1m3',           label: 'M1 vs M3' },
+  { id: 'mailbox',        label: 'Mailbox Seats' },
 ]
 
 const C = {
@@ -31,13 +33,13 @@ export default function M3Correlation() {
       <div style={{ borderBottom: `1px solid ${C.border}`, background: C.header, padding: '0 32px' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
           <div style={{ padding: '20px 0 0' }}>
-            <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: C.sub, marginBottom: 4 }}>
+            <div style={{ fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase', color: C.sub, marginBottom: 4 }}>
               Neo · Renewal Analysis
             </div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: C.textHi, marginBottom: 3 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: C.textHi, marginBottom: 3 }}>
               M3 Renewal: Feature Correlation
             </div>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 14 }}>
+            <div style={{ fontSize: 13, color: C.sub, marginBottom: 14 }}>
               Data analysis from Feb 2026 · 17,538 orders · Co.site &amp; Custom Domain
             </div>
           </div>
@@ -47,7 +49,7 @@ export default function M3Correlation() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 style={{
-                  padding: '10px 18px', fontSize: 13,
+                  padding: '10px 18px', fontSize: 14,
                   fontWeight: activeTab === tab.id ? 700 : 500,
                   color: activeTab === tab.id ? C.cyan : C.sub,
                   background: 'none', border: 'none',
@@ -68,6 +70,7 @@ export default function M3Correlation() {
           {activeTab === 'overview'     && <OverviewTab />}
           {activeTab === 'correlations' && <CorrelationsTab />}
           {activeTab === 'domain'       && <DomainTab />}
+          {activeTab === 'traffic'      && <TrafficSourceTab />}
           {activeTab === 'm1m3'         && <M1vsM3Tab />}
           {activeTab === 'mailbox'      && <MailboxTab />}
         </ErrorBoundary>

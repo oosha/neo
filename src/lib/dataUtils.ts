@@ -49,6 +49,34 @@ export const DOMAIN_LABELS: { [k: string]: string } = {
   custom_domain: 'Custom Domain',
 }
 
+export const UTM_SOURCES = [
+  'utm_source_direct',
+  'utm_source_organic',
+  'utm_source_google',
+  'utm_source_facebook',
+  'utm_source_youtube',
+  'utm_source_neo_hooks',
+  'utm_source_neo_referral',
+  'utm_source_performance_max',
+  'utm_source_referral',
+  'utm_source_others',
+  'utm_source_ai_llm',
+]
+
+export const UTM_LABELS: { [k: string]: string } = {
+  utm_source_direct:          'Direct',
+  utm_source_organic:         'Organic',
+  utm_source_google:          'Google',
+  utm_source_facebook:        'Facebook',
+  utm_source_youtube:         'YouTube',
+  utm_source_neo_hooks:       'Neo Hooks',
+  utm_source_neo_referral:    'Neo Referral',
+  utm_source_performance_max: 'Performance Max',
+  utm_source_referral:        'Referral',
+  utm_source_others:          'Others',
+  utm_source_ai_llm:          'AI / LLM',
+}
+
 export const SEGMENTS = SEGS
 export const SEGMENT_LABELS: { [k: string]: string } = {
   overall:       'Overall',

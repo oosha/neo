@@ -203,7 +203,7 @@ export default function SummaryTab() {
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <KPICard label="Total Orders" value={overallOrders.toLocaleString()} subtext="on monthly billing" />
           <KPICard label="M3 Renewal Rate" value={formatRate(overallM3Rate)} highlight />
-          <KPICard label="M1 Received Rate" value={formatRate(overallM1Rate)} />
+          <KPICard label="M1 Renewal Rate" value={formatRate(overallM1Rate)} />
           <KPICard label="M1→M3 Drop" value={`-${(m1ToM3Drop * 100).toFixed(1)}%`} subtext="Cohort decline" />
         </div>
       </section>
@@ -308,7 +308,7 @@ export default function SummaryTab() {
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.textHi, marginBottom: 12 }}>Co.site Users</div>
             <TableRow label="M3 Renewal Rate" value={(cositeM3Rate * 100).toFixed(1)} />
-            <TableRow label="M1 Receive Rate" value={(cositeM1Rate * 100).toFixed(1)} />
+            <TableRow label="M1 Renewal Rate" value={(cositeM1Rate * 100).toFixed(1)} />
             <TableRow label="Total Orders" value={cositeOrders.toLocaleString()} />
             <TableRow label="Cohort Share" value={(cositeOrders / overallOrders * 100).toFixed(1) + '%'} />
           </div>
@@ -316,7 +316,7 @@ export default function SummaryTab() {
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.textHi, marginBottom: 12 }}>Custom Domain Users</div>
             <TableRow label="M3 Renewal Rate" value={(customM3Rate * 100).toFixed(1)} />
-            <TableRow label="M1 Receive Rate" value={(customM1Rate * 100).toFixed(1)} />
+            <TableRow label="M1 Renewal Rate" value={(customM1Rate * 100).toFixed(1)} />
             <TableRow label="Total Orders" value={customOrders.toLocaleString()} />
             <TableRow label="Cohort Share" value={(customOrders / overallOrders * 100).toFixed(1) + '%'} />
           </div>
