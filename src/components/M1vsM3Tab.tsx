@@ -5,7 +5,7 @@ import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell, Legend
 } from 'recharts'
-import { m3, m1, getFeatureRows, getCorrelation, DOMAIN_TYPES, DOMAIN_LABELS, SEGMENTS, SEGMENT_LABELS, cleanFeatLabel, formatCorr } from '@/lib/dataUtils'
+import { m3, m1, getFeatureRows, getCorrelation, DOMAIN_TYPES, DOMAIN_LABELS, SEGMENTS, SEGMENT_LABELS, UTM_SOURCES, UTM_LABELS, cleanFeatLabel, formatCorr } from '@/lib/dataUtils'
 
 const C = {
   card: '#131b26', border: '#1e2b3c', grid: '#172030',
@@ -29,12 +29,14 @@ function SectionHead({ title, sub, insight }: { title: string; sub?: string; ins
 }
 
 export default function M1vsM3Tab() {
-  const [domainType, setDomainType] = useState('overall')
-  const [segment, setSegment] = useState('overall')
-  const [topN,    setTopN]    = useState(20)
+  const [domainType,     setDomainType]     = useState('overall')
+  const [segment,        setSegment]        = useState('overall')
+  const [trafficSource,  setTrafficSource]  = useState('all')
+  const [topN,           setTopN]           = useState(20)
 
-  const m3Rows = useMemo(() => getFeatureRows(m3, 'overall'), [])
-  const m1Rows = useMemo(() => getFeatureRows(m1, 'overall'), [])
+  const effectivePartner = trafficSource !== 'all' ? trafficSource : 'overall'
+  const m3Rows = useMemo(() => getFeatureRows(m3, effectivePartner), [effectivePartner])
+  const m1Rows = useMemo(() => getFeatureRows(m1, effectivePartner), [effectivePartner])
 
   const joined = useMemo(() => {
     const m3Map = new Map(m3Rows.map(r => [r.feat, r]))
@@ -87,9 +89,10 @@ export default function M1vsM3Tab() {
       {/* Controls */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         {[
-          { label: 'Domain Type',       value: domainType, onChange: setDomainType, opts: DOMAIN_TYPES.map(p => ({ v: p, l: DOMAIN_LABELS[p] })) },
-          { label: 'Segment',           value: segment, onChange: setSegment, opts: SEGMENTS.map(s => ({ v: s, l: SEGMENT_LABELS[s] })) },
-          { label: 'Top movers shown',  value: topN,    onChange: (v: any) => setTopN(Number(v)), opts: [10, 20, 30].map(n => ({ v: n, l: String(n) })) },
+          { label: 'Domain Type',       value: domainType,    onChange: setDomainType,                        opts: DOMAIN_TYPES.map(p => ({ v: p, l: DOMAIN_LABELS[p] })) },
+          { label: 'Segment',           value: segment,       onChange: setSegment,                           opts: SEGMENTS.map(s => ({ v: s, l: SEGMENT_LABELS[s] })) },
+          { label: 'Traffic Source',    value: trafficSource, onChange: setTrafficSource,                     opts: [{ v: 'all', l: 'All Sources' }, ...UTM_SOURCES.map(s => ({ v: s, l: UTM_LABELS[s] }))] },
+          { label: 'Top movers shown',  value: topN,          onChange: (v: any) => setTopN(Number(v)),       opts: [10, 20, 30].map(n => ({ v: n, l: String(n) })) },
         ].map(({ label, value, onChange, opts }) => (
           <div key={label}>
             <label style={{ fontSize: 11, color: C.sub, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</label>

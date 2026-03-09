@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, Legend
+  ResponsiveContainer, Legend
 } from 'recharts'
 import {
   m3, m1, getRenewalRate, getOrderCount, getFeatureRows,
@@ -125,7 +125,7 @@ export default function TrafficSourceTab() {
                 return (
                   <tr
                     key={r.src}
-                    style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)', cursor: 'pointer' }}
+                    style={{ borderBottom: `1px solid ${C.border}`, background: selectedSource === r.src ? 'rgba(77,168,152,0.12)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)', cursor: 'pointer' }}
                     onClick={() => setSelectedSource(r.src)}
                   >
                     <td style={{ padding: '8px 12px' }}>
@@ -165,10 +165,8 @@ export default function TrafficSourceTab() {
             <YAxis tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 11, fill: C.sub }} axisLine={false} tickLine={false} domain={[0, 75]} />
             <Tooltip content={<Tip />} wrapperStyle={{ background: 'transparent', border: 'none', boxShadow: 'none', padding: 0 }} />
             <Legend wrapperStyle={{ paddingTop: 8, fontSize: 12, color: C.sub }} />
-            <Bar dataKey="M1" fill={C.sub} radius={[3,3,0,0]} opacity={0.5} />
-            <Bar dataKey="M3" radius={[3,3,0,0]}>
-              {chartData.map((entry, i) => <Cell key={i} fill={SRC_COLORS[entry.src] ?? C.cyan} />)}
-            </Bar>
+            <Bar dataKey="M1" fill={C.purple} radius={[3,3,0,0]} opacity={0.6} />
+            <Bar dataKey="M3" fill={C.cyan}   radius={[3,3,0,0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
