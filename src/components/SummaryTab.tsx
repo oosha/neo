@@ -3,7 +3,7 @@
 import {
   m3, m1, getRenewalRate, getOrderCount, getFeatureRows, getCorrelation,
   getReach, DOMAIN_TYPES, DOMAIN_LABELS, SEGMENT_LABELS, DOMAIN_SEGMENTS,
-  PLAN_SEGMENTS, cleanFeatLabel, formatRate
+  PLAN_SEGMENTS, cleanFeatLabel, formatRate,
 } from '@/lib/dataUtils'
 
 const C = {
@@ -268,27 +268,27 @@ export default function SummaryTab() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {Object.entries(planSignals).map(([planName, signals]) => (
               <div key={planName} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: C.accent, marginBottom: 3, textTransform: 'capitalize' }}>
-                  {planName} Plan
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.accent, marginBottom: 4 }}>
+                  {SEGMENT_LABELS[planName] ?? planName} Plan
                 </div>
-                <div style={{ fontSize: 11, color: C.sub, marginBottom: 12 }}>{signals.hypothesis}</div>
+                <div style={{ fontSize: 13, color: C.sub, marginBottom: 14, lineHeight: 1.6 }}>{signals.hypothesis}</div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 12 }}>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: C.green, marginBottom: 8 }}>Top Signals</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.green, marginBottom: 8 }}>Top Signals</div>
                     {signals.top.map(s => (
-                      <div key={s.feature} style={{ fontSize: 11, padding: '4px 0', color: C.textHi }}>
+                      <div key={s.feature} style={{ fontSize: 13, padding: '7px 0', borderBottom: `1px solid ${C.border}`, color: C.textHi, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>{cleanFeatLabel(s.feature)}</span>
-                        <span style={{ float: 'right', color: C.green, fontWeight: 600 }}>+{s.corr.toFixed(3)}</span>
+                        <span style={{ color: C.green, fontWeight: 600, marginLeft: 12, flexShrink: 0 }}>+{s.corr.toFixed(3)}</span>
                       </div>
                     ))}
                   </div>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: C.red, marginBottom: 8 }}>Bottom Signals</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.red, marginBottom: 8 }}>Bottom Signals</div>
                     {signals.bottom.map(s => (
-                      <div key={s.feature} style={{ fontSize: 11, padding: '4px 0', color: C.textHi }}>
+                      <div key={s.feature} style={{ fontSize: 13, padding: '7px 0', borderBottom: `1px solid ${C.border}`, color: C.textHi, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>{cleanFeatLabel(s.feature)}</span>
-                        <span style={{ float: 'right', color: C.red, fontWeight: 600 }}>{s.corr.toFixed(3)}</span>
+                        <span style={{ color: C.red, fontWeight: 600, marginLeft: 12, flexShrink: 0 }}>{s.corr.toFixed(3)}</span>
                       </div>
                     ))}
                   </div>
@@ -330,63 +330,51 @@ export default function SummaryTab() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.accent, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.accent, marginBottom: 10 }}>
               What Drives Renewal for Co.site Users
             </div>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 14, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: C.sub, marginBottom: 14, lineHeight: 1.6 }}>
               Site signals are strong renewal predictors for co.site users.
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>Visitors Volume</span>
-                <span style={{ color: C.green, fontWeight: 600 }}>+{neoSiteSignals.cosite.visitors_volume.toFixed(3)}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>Has Visitor</span>
-                <span style={{ color: C.green, fontWeight: 600 }}>+{neoSiteSignals.cosite.has_visitor.toFixed(3)}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>Published Site</span>
-                <span style={{ color: C.green, fontWeight: 600 }}>+{(neoSiteSignals.cosite.published ?? 0).toFixed(3)}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>Draft Site</span>
-                <span style={{ color: neoSiteSignals.cosite.draft > 0 ? C.green : C.red, fontWeight: 600 }}>
-                  {neoSiteSignals.cosite.draft > 0 ? '+' : ''}{neoSiteSignals.cosite.draft.toFixed(3)}
-                </span>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', fontSize: 13 }}>
+              {([
+                { label: 'Visitors Volume', val: `+${neoSiteSignals.cosite.visitors_volume.toFixed(3)}`, color: C.green },
+                { label: 'Has Visitor',     val: `+${neoSiteSignals.cosite.has_visitor.toFixed(3)}`,     color: C.green },
+                { label: 'Published Site',  val: `+${(neoSiteSignals.cosite.published ?? 0).toFixed(3)}`, color: C.green },
+                { label: 'Draft Site',      val: `${neoSiteSignals.cosite.draft > 0 ? '+' : ''}${neoSiteSignals.cosite.draft.toFixed(3)}`, color: neoSiteSignals.cosite.draft > 0 ? C.green : C.red },
+              ] as const).map(r => (
+                <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: `1px solid ${C.border}` }}>
+                  <span style={{ color: C.textHi }}>{r.label}</span>
+                  <span style={{ color: r.color, fontWeight: 600 }}>{r.val}</span>
+                </div>
+              ))}
             </div>
-            <div style={{ fontSize: 11, color: C.sub, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontStyle: 'italic' }}>
+            <div style={{ fontSize: 12, color: C.sub, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontStyle: 'italic' }}>
               Getting a neo site live with real visitors is a strong retention signal for co.site users.
             </div>
           </div>
 
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.green, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.green, marginBottom: 10 }}>
               What Drives Renewal for Custom Domain Users
             </div>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 14, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: C.sub, marginBottom: 14, lineHeight: 1.6 }}>
               Site signals are weaker; email habits dominate renewal decisions.
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>Visitors Volume</span>
-                <span style={{ color: C.green, fontWeight: 600 }}>+{(neoSiteSignals.custom.visitors_volume ?? 0).toFixed(3)}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>Has Visitor</span>
-                <span style={{ color: C.green, fontWeight: 600 }}>+{(neoSiteSignals.custom.has_visitor ?? 0).toFixed(3)}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>Published Site</span>
-                <span style={{ color: C.sub }}>—</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>Draft Site</span>
-                <span style={{ color: C.red, fontWeight: 600 }}>{(neoSiteSignals.custom.draft ?? 0).toFixed(3)}</span>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', fontSize: 13 }}>
+              {([
+                { label: 'Visitors Volume', val: `+${(neoSiteSignals.custom.visitors_volume ?? 0).toFixed(3)}`, color: C.green },
+                { label: 'Has Visitor',     val: `+${(neoSiteSignals.custom.has_visitor ?? 0).toFixed(3)}`,     color: C.green },
+                { label: 'Published Site',  val: '—',                                                           color: C.sub },
+                { label: 'Draft Site',      val: `${(neoSiteSignals.custom.draft ?? 0).toFixed(3)}`,            color: C.red },
+              ] as const).map(r => (
+                <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: `1px solid ${C.border}` }}>
+                  <span style={{ color: C.textHi }}>{r.label}</span>
+                  <span style={{ color: r.color, fontWeight: 600 }}>{r.val}</span>
+                </div>
+              ))}
             </div>
-            <div style={{ fontSize: 11, color: C.sub, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontStyle: 'italic' }}>
+            <div style={{ fontSize: 12, color: C.sub, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontStyle: 'italic' }}>
               Email engagement patterns—receiving and reading—are the dominant renewal drivers.
             </div>
           </div>
@@ -400,38 +388,26 @@ export default function SummaryTab() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.green, marginBottom: 12 }}>Signals That Strengthened</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>read_w3</span>
-                <span style={{ color: C.green, fontWeight: 600 }}>+0.038</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>receive_w4</span>
-                <span style={{ color: C.green, fontWeight: 600 }}>+0.031</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>send_w2</span>
-                <span style={{ color: C.green, fontWeight: 600 }}>+0.024</span>
-              </div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.green, marginBottom: 10 }}>Signals That Strengthened</div>
+            <div style={{ display: 'flex', flexDirection: 'column', fontSize: 13 }}>
+              {[{ label: 'Read w3', val: '+0.038' }, { label: 'Receive w4', val: '+0.031' }, { label: 'Send w2', val: '+0.024' }].map(r => (
+                <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: `1px solid ${C.border}` }}>
+                  <span style={{ color: C.textHi }}>{r.label}</span>
+                  <span style={{ color: C.green, fontWeight: 600 }}>{r.val}</span>
+                </div>
+              ))}
             </div>
           </div>
 
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.red, marginBottom: 12 }}>Signals That Faded</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>contact_group_usage</span>
-                <span style={{ color: C.red, fontWeight: 600 }}>-0.042</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>marketing_custom_html</span>
-                <span style={{ color: C.red, fontWeight: 600 }}>-0.031</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
-                <span style={{ color: C.textHi }}>rate_limits_bounce</span>
-                <span style={{ color: C.red, fontWeight: 600 }}>-0.019</span>
-              </div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.red, marginBottom: 10 }}>Signals That Faded</div>
+            <div style={{ display: 'flex', flexDirection: 'column', fontSize: 13 }}>
+              {[{ label: 'Contact group usage', val: '-0.042' }, { label: 'Marketing custom HTML', val: '-0.031' }, { label: 'Rate limits bounce', val: '-0.019' }].map(r => (
+                <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: `1px solid ${C.border}` }}>
+                  <span style={{ color: C.textHi }}>{r.label}</span>
+                  <span style={{ color: C.red, fontWeight: 600 }}>{r.val}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -444,8 +420,8 @@ export default function SummaryTab() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.accent, marginBottom: 12 }}>Co.site Top Features</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.accent, marginBottom: 10 }}>Co.site Top Features</div>
+            <div style={{ display: 'flex', flexDirection: 'column', fontSize: 13 }}>
               {[
                 { label: 'receive_w3', val: '+0.254' },
                 { label: 'read_w3', val: '+0.201' },
@@ -453,7 +429,7 @@ export default function SummaryTab() {
                 { label: 'read_w4', val: '+0.148' },
                 { label: 'send_w2', val: '+0.092' },
               ].map(item => (
-                <div key={item.label} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
+                <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: `1px solid ${C.border}` }}>
                   <span style={{ color: C.textHi }}>{cleanFeatLabel(item.label)}</span>
                   <span style={{ color: C.green, fontWeight: 600 }}>{item.val}</span>
                 </div>
@@ -462,8 +438,8 @@ export default function SummaryTab() {
           </div>
 
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.green, marginBottom: 12 }}>Custom Domain Top Features</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.green, marginBottom: 10 }}>Custom Domain Top Features</div>
+            <div style={{ display: 'flex', flexDirection: 'column', fontSize: 13 }}>
               {[
                 { label: 'read_w2', val: '+0.289' },
                 { label: 'send_w1', val: '+0.243' },
@@ -471,7 +447,7 @@ export default function SummaryTab() {
                 { label: 'read_w3', val: '+0.167' },
                 { label: 'send_w2', val: '+0.156' },
               ].map(item => (
-                <div key={item.label} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
+                <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: `1px solid ${C.border}` }}>
                   <span style={{ color: C.textHi }}>{cleanFeatLabel(item.label)}</span>
                   <span style={{ color: C.green, fontWeight: 600 }}>{item.val}</span>
                 </div>

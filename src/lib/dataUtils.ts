@@ -69,7 +69,7 @@ export const UTM_LABELS: { [k: string]: string } = {
   utm_source_google:          'Google',
   utm_source_facebook:        'Facebook',
   utm_source_youtube:         'YouTube',
-  utm_source_neo_hooks:       'Organic Hooks',
+  utm_source_neo_hooks:       'Neo Hooks',
   utm_source_neo_referral:    'Neo Referral',
   utm_source_performance_max: 'Performance Max',
   utm_source_referral:        'Marketing Referral',
@@ -82,9 +82,9 @@ export const SEGMENT_LABELS: { [k: string]: string } = {
   overall:       'Overall',
   co_site:       'Co.site',
   custom_domain: 'Custom Domain',
-  pro:           'Pro',
-  premium:       'Premium',
-  ultra:         'Ultra',
+  pro:           'Starter',
+  premium:       'Standard',
+  ultra:         'Max',
 }
 
 export const DOMAIN_SEGMENTS = ['co_site', 'custom_domain']
@@ -124,9 +124,9 @@ export function formatReach(v: number | null) {
 export function cleanFeatLabel(feat: string) {
   const overrides: Record<string, string> = {
     'is_co_site': 'Co.site user',
-    'dom_plan_type_pro': 'Plan: Pro',
-    'dom_plan_type_premium': 'Plan: Premium',
-    'dom_plan_type_ultra': 'Plan: Ultra',
+    'dom_plan_type_pro': 'Plan: Starter',
+    'dom_plan_type_premium': 'Plan: Standard',
+    'dom_plan_type_ultra': 'Plan: Max',
     'neo_site_published': 'Neo site: published',
     'neo_site_unpublished': 'Neo site: unpublished',
     'neo_site_draft': 'Neo site: draft only',
