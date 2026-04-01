@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { C } from './theme'
 import { FunnelRow, groupByMonth, getSortedMonths, formatMonth, formatNum, formatPct } from '@/lib/trafficUtils'
 
@@ -32,13 +32,11 @@ export default function TrendCharts({ data }: { data: FunnelRow[] }) {
       const orders = events.get('order_created') || 0
       const paidOrders = events.get('paid_order_created') || 0
       const getStarted = events.get('website_get_started_viewed') || 0
-      const domainSelected = events.get('website_domain_selected') || 0
 
       return {
         month: formatMonth(m),
         visitors,
         getStarted,
-        domainSelected,
         orders,
         paidOrders,
         orderRate: visitors ? (orders / visitors) * 100 : 0,
@@ -58,42 +56,48 @@ export default function TrendCharts({ data }: { data: FunnelRow[] }) {
 
   return (
     <div>
-      {/* Traffic Volume */}
+      {/* Traffic Volume - Lines for visitors on left axis, Bars for orders on right axis */}
       <div style={chartBox}>
         <div style={titleStyle}>Traffic Volume (Monthly)</div>
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={trendData} margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+        <ResponsiveContainer width="100%" height={300}>
+          <ComposedChart data={trendData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
             <XAxis dataKey="month" tick={{ fontSize: 11, fill: C.sub }} axisLine={{ stroke: C.border }} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: C.sub }} axisLine={{ stroke: C.border }} tickLine={false}
-              tickFormatter={(v: number) => formatNum(v)} />
+            <YAxis yAxisId="left" tick={{ fontSize: 11, fill: C.sub }} axisLine={{ stroke: C.border }} tickLine={false}
+              tickFormatter={(v: number) => formatNum(v)} label={{ value: 'Visitors', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: C.sub } }} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: C.sub }} axisLine={{ stroke: C.border }} tickLine={false}
+              tickFormatter={(v: number) => formatNum(v)} label={{ value: 'Orders', angle: 90, position: 'insideRight', style: { fontSize: 11, fill: C.sub } }} />
             <Tooltip content={<TrendTooltip />}
               wrapperStyle={{ background: 'transparent', border: 'none', boxShadow: 'none' }} />
             <Legend wrapperStyle={{ fontSize: 11, color: C.sub }} />
-            <Line type="monotone" dataKey="visitors" name="Visitors" stroke={C.blue} strokeWidth={2} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="getStarted" name="Get Started" stroke={C.purple} strokeWidth={2} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="orders" name="Orders" stroke={C.amber} strokeWidth={2} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="paidOrders" name="Paid Orders" stroke={C.cyan} strokeWidth={2} dot={{ r: 3 }} />
-          </LineChart>
+            <Line yAxisId="left" type="monotone" dataKey="visitors" name="Visitors" stroke={C.blue} strokeWidth={2} dot={{ r: 3 }} />
+            <Line yAxisId="left" type="monotone" dataKey="getStarted" name="Get Started" stroke={C.purple} strokeWidth={2} dot={{ r: 3 }} />
+            <Bar yAxisId="right" dataKey="orders" name="Orders" fill={C.amber} fillOpacity={0.7} barSize={20} />
+            <Bar yAxisId="right" dataKey="paidOrders" name="Paid Orders" fill={C.cyan} fillOpacity={0.8} barSize={20} />
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Conversion Rates */}
+      {/* Conversion Rates - Bars for conversion rates, line for paid % on right axis */}
       <div style={chartBox}>
         <div style={titleStyle}>Conversion Rates (Monthly)</div>
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={trendData} margin={{ left: 10, right: 20, top: 5, bottom: 5 }}>
+        <ResponsiveContainer width="100%" height={300}>
+          <ComposedChart data={trendData} margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.grid} />
             <XAxis dataKey="month" tick={{ fontSize: 11, fill: C.sub }} axisLine={{ stroke: C.border }} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: C.sub }} axisLine={{ stroke: C.border }} tickLine={false}
-              tickFormatter={(v: number) => formatPct(v)} domain={[0, 'auto']} />
+            <YAxis yAxisId="left" tick={{ fontSize: 11, fill: C.sub }} axisLine={{ stroke: C.border }} tickLine={false}
+              tickFormatter={(v: number) => formatPct(v)} domain={[0, 'auto']}
+              label={{ value: 'Conv %', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: C.sub } }} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: C.sub }} axisLine={{ stroke: C.border }} tickLine={false}
+              tickFormatter={(v: number) => formatPct(v)} domain={[0, 100]}
+              label={{ value: 'Paid %', angle: 90, position: 'insideRight', style: { fontSize: 11, fill: C.sub } }} />
             <Tooltip content={<TrendTooltip />}
               wrapperStyle={{ background: 'transparent', border: 'none', boxShadow: 'none' }} />
             <Legend wrapperStyle={{ fontSize: 11, color: C.sub }} />
-            <Line type="monotone" dataKey="orderRate" name="Visitor \u2192 Order %" stroke={C.amber} strokeWidth={2} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="paidRate" name="Visitor \u2192 Paid %" stroke={C.cyan} strokeWidth={2} dot={{ r: 3 }} />
-            <Line type="monotone" dataKey="paidPct" name="Paid % of Orders" stroke={C.green} strokeWidth={2} dot={{ r: 3 }} />
-          </LineChart>
+            <Bar yAxisId="left" dataKey="orderRate" name="Visitor \u2192 Order %" fill={C.amber} fillOpacity={0.7} barSize={20} />
+            <Bar yAxisId="left" dataKey="paidRate" name="Visitor \u2192 Paid %" fill={C.cyan} fillOpacity={0.8} barSize={20} />
+            <Line yAxisId="right" type="monotone" dataKey="paidPct" name="Paid % of Orders" stroke={C.green} strokeWidth={2.5} dot={{ r: 4 }} />
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     </div>

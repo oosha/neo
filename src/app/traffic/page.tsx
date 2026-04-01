@@ -1,68 +1,72 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import FilterBar, { Filters, DEFAULT_FILTERS } from '@/components/traffic/FilterBar'
 import KPICards from '@/components/traffic/KPICards'
 import FunnelChart from '@/components/traffic/FunnelChart'
 import TrendCharts from '@/components/traffic/TrendCharts'
 import SegmentTable from '@/components/traffic/SegmentTable'
+import DistributionCharts from '@/components/traffic/DistributionCharts'
+import CompareSection from '@/components/traffic/CompareSection'
 import { C } from '@/components/traffic/theme'
-import { FunnelRow, groupByMonth, getSortedMonths, buildQueryString, formatMonth } from '@/lib/trafficUtils'
+import { FunnelRow, groupByMonth, getSortedMonths, formatMonth } from '@/lib/trafficUtils'
 
 export default function TrafficDashboard() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
   const [funnelData, setFunnelData] = useState<FunnelRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const [distData, setDistData] = useState<{ plan: any[]; billing: any[]; google: any[] }>({ plan: [], billing: [], google: [] })
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedMonth, setSelectedMonth] = useState<string>('')
 
-  const fetchData = useCallback(async (f: Filters) => {
+  const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const qs = buildQueryString({
-        startDate: f.startDate,
-        endDate: f.endDate,
-        utmSource: f.utmSource || undefined,
-        device: f.device || undefined,
-        country: f.country || undefined,
-        neoOffering: f.neoOffering || undefined,
+      const params = new URLSearchParams({
+        startDate: filters.startDate,
+        endDate: filters.endDate,
       })
-      const res = await fetch(`/api/traffic/funnel?${qs}`)
-      const json = await res.json()
-      if (json.error) throw new Error(json.error)
-      setFunnelData(json.data || [])
+      // Multi-select: pass first selected value to Metabase filter (limitation of card params)
+      if (filters.utmSource.length) params.set('utmSource', filters.utmSource[0])
+      if (filters.device.length) params.set('device', filters.device[0])
+      if (filters.country.length) params.set('country', filters.country[0])
+      if (filters.neoOffering.length) params.set('neoOffering', filters.neoOffering[0])
+
+      const [funnelRes, distRes] = await Promise.all([
+        fetch(`/api/traffic/funnel?${params}`).then(r => r.json()),
+        fetch(`/api/traffic/distribution?startDate=${filters.startDate}&endDate=${filters.endDate}`).then(r => r.json()),
+      ])
+
+      if (funnelRes.error) throw new Error(funnelRes.error)
+      setFunnelData(funnelRes.data || [])
+      setDistData({ plan: distRes.plan || [], billing: distRes.billing || [], google: distRes.google || [] })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load data')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [filters])
 
-  useEffect(() => {
-    fetchData(filters)
-  }, [filters, fetchData])
-
-  // Derive available months and set selected month
+  // Derive available months
   const months = useMemo(() => {
     const grouped = groupByMonth(funnelData)
     return getSortedMonths(grouped)
   }, [funnelData])
 
-  useEffect(() => {
+  // Auto-select latest month
+  useMemo(() => {
     if (months.length && !months.includes(selectedMonth)) {
       setSelectedMonth(months[0])
     }
   }, [months, selectedMonth])
 
-  // KPI data for latest and previous month
+  // KPI data
   const kpiData = useMemo(() => {
     const grouped = groupByMonth(funnelData)
     const get = (month: string, event: string) => grouped.get(month)?.get(event) || 0
-
     const curr = months[0] || ''
     const prev = months[1] || ''
-
     return {
       visitors: get(curr, 'homepage_and_get_started'),
       orders: get(curr, 'order_created'),
@@ -90,7 +94,7 @@ export default function TrafficDashboard() {
         </div>
 
         {/* Filters */}
-        <FilterBar filters={filters} onChange={setFilters} loading={loading} />
+        <FilterBar filters={filters} onChange={setFilters} onSubmit={fetchData} loading={loading} />
 
         {error && (
           <div style={{
@@ -104,7 +108,7 @@ export default function TrafficDashboard() {
 
         {!loading && funnelData.length > 0 && (
           <>
-            {/* Month selector for funnel */}
+            {/* Month selector */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
               <span style={{ fontSize: 12, color: C.sub }}>Showing KPIs & funnel for:</span>
               <select
@@ -121,27 +125,34 @@ export default function TrafficDashboard() {
               </select>
             </div>
 
-            {/* KPI Cards */}
             <KPICards data={kpiData} />
 
-            {/* Funnel Chart */}
             <div style={{ marginBottom: 24 }}>
               <FunnelChart data={funnelData} selectedMonth={selectedMonth} />
             </div>
 
-            {/* Trend Charts */}
             <div style={{ marginBottom: 24 }}>
               <TrendCharts data={funnelData} />
             </div>
 
-            {/* Segment Table */}
-            <SegmentTable data={funnelData} />
+            <div style={{ marginBottom: 24 }}>
+              <SegmentTable data={funnelData} />
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <DistributionCharts planData={distData.plan} billingData={distData.billing} googleData={distData.google} />
+            </div>
+
+            {/* Segment Comparison */}
+            <div style={{ marginBottom: 24 }}>
+              <CompareSection baseFilters={filters} />
+            </div>
           </>
         )}
 
         {!loading && funnelData.length === 0 && !error && (
           <div style={{ textAlign: 'center', padding: 60, color: C.sub }}>
-            No data available for the selected filters
+            Click &quot;Apply Filters&quot; to load data
           </div>
         )}
       </div>

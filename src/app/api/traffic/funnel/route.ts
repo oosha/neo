@@ -5,6 +5,9 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams
 
   try {
+    // Multi-select params come as comma-separated; Metabase string/= accepts single value,
+    // so we pass the first selected value. For true multi-value, we'd need multiple API calls.
+    // For now, single filter value is passed to Metabase.
     const params = buildFunnelParams({
       startDate: sp.get('startDate') || undefined,
       endDate: sp.get('endDate') || undefined,

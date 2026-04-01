@@ -63,10 +63,15 @@ export function getSortedMonths(months: Map<string, Map<string, number>>): strin
     .sort((a, b) => b.localeCompare(a))
 }
 
-// Format month string for display
+// Month names for formatting
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// Format month string for display (handles "2026-03-01" and "2026-03-01T00:00:00Z")
 export function formatMonth(cohort: string): string {
-  const d = new Date(cohort + 'T00:00:00')
-  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+  const parts = cohort.slice(0, 10).split('-')
+  if (parts.length < 2) return cohort
+  const monthIdx = parseInt(parts[1], 10) - 1
+  return `${MONTH_NAMES[monthIdx]} ${parts[0]}`
 }
 
 // Compute MoM change percentage
