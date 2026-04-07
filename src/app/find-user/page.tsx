@@ -486,12 +486,12 @@ function CannyPostRow({ post }: { post: CannyPost }) {
   )
 }
 
-// ── Feature usage section (categorised, matches titanmail) ───────────────────
+// ── Feature usage section (matches titanmail exactly) ────────────────────────
 
 function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntry[]; featureFloor?: string | null }) {
   if (features.length === 0) return <div style={{ color: C.sub, fontSize: 13 }}>No feature usage data.</div>
 
-  const lifetimeLabel = featureFloor === 'last-90d' ? 'last 90d' : featureFloor ? `Since ${featureFloor.slice(0,7)}` : 'Lifetime'
+  const lifetimeLabel = featureFloor === 'last-90d' ? 'last 90d' : featureFloor ? `since ${featureFloor.slice(0,7)}` : 'lifetime'
   const catLabel: Record<string, string> = {
     ...CAT_LABEL,
     advanced_one_time_setup: `One-time setup (${lifetimeLabel})`,
@@ -499,23 +499,24 @@ function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntr
     toggled_features:        `Settings toggled (${lifetimeLabel})`,
   }
 
-  // ── Summary: 4 key engagement indicators ──────────────────────────────────
-  const featureSet = new Set(features.map(f => f.feature))
-  const calendarTotal = features
-    .filter(f => ['calendar_event_creation', 'calendar_invite_received'].includes(f.feature))
-    .reduce((s, f) => s + f.total_usage, 0)
+  // ── Summary chips ─────────────────────────────────────────────────────────
+  const usedKeys = new Set(features.map(f => f.feature))
+  const calendarCount = features
+    .filter(f => f.feature === 'calendar_event_creation' || f.feature === 'calendar_invite_received')
+    .reduce((sum, f) => sum + Number(f.total_usage), 0)
+  const dailyLimitHits  = features.filter(f => f.feature === 'mail_send_daily').reduce((s, f) => s + Number(f.total_usage), 0)
+  const hourlyLimitHits = features.filter(f => f.feature === 'mail_send_hourly').reduce((s, f) => s + Number(f.total_usage), 0)
 
   const summaryItems = [
-    { label: 'Read receipts',   active: featureSet.has('read_receipts') },
-    { label: 'Email templates', active: featureSet.has('email_templates') },
-    { label: 'Turbo search',    active: featureSet.has('advanced_search') || featureSet.has('turbo_search') },
-    { label: `📅 ${calendarTotal > 0 ? calendarTotal.toLocaleString() + ' calendar events' : 'Calendar'}`, active: calendarTotal > 0 },
+    { label: 'Read receipts',   used: usedKeys.has('read_receipts') },
+    { label: 'Email templates', used: usedKeys.has('email_templates') },
+    { label: 'Turbo search',    used: usedKeys.has('advanced_search') },
   ]
 
   // ── Group by category ──────────────────────────────────────────────────────
   const grouped: Record<string, FeatureEntry[]> = {}
   for (const f of features) {
-    const cat = f.category || 'Other'
+    const cat = f.category || 'other'
     if (!grouped[cat]) grouped[cat] = []
     grouped[cat].push(f)
   }
@@ -524,20 +525,40 @@ function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntr
     ...Object.keys(grouped).filter(c => !CAT_ORDER.includes(c) && grouped[c]),
   ]
 
+  const chipBase: React.CSSProperties = { fontSize: 12, padding: '3px 9px', borderRadius: 4, fontWeight: 600 }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div>
       {/* Summary chips */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        {summaryItems.map(({ label, active }) => (
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        {summaryItems.map(({ label, used }) => (
           <span key={label} style={{
-            fontSize: 12, background: C.panel, border: `1px solid ${active ? C.cyan + '55' : C.border}`,
-            borderRadius: 4, padding: '3px 10px', color: active ? C.textHi : C.sub,
-            display: 'inline-flex', alignItems: 'center', gap: 5,
+            ...chipBase,
+            background: used ? C.cyan + '22' : C.border,
+            color: used ? C.cyan : C.sub,
+            border: `1px solid ${used ? C.cyan + '44' : 'transparent'}`,
           }}>
-            <span style={{ color: active ? C.green : C.pink, fontWeight: 700 }}>{active ? '✓' : '✗'}</span>
-            {label}
+            {used ? '✓ ' : '✗ '}{label}
           </span>
         ))}
+        <span style={{
+          ...chipBase,
+          background: calendarCount > 0 ? C.cyan + '22' : C.border,
+          color: calendarCount > 0 ? C.cyan : C.sub,
+          border: `1px solid ${calendarCount > 0 ? C.cyan + '44' : 'transparent'}`,
+        }}>
+          📅 Calendar{calendarCount > 0 ? ` · ${calendarCount.toLocaleString()}` : ' ✗'}
+        </span>
+        {dailyLimitHits > 0 && (
+          <span style={{ ...chipBase, background: C.pink + '22', color: C.pink, border: `1px solid ${C.pink}44` }}>
+            ⚠ Daily send limit hit · {dailyLimitHits.toLocaleString()}x
+          </span>
+        )}
+        {hourlyLimitHits > 0 && (
+          <span style={{ ...chipBase, background: C.pink + '22', color: C.pink, border: `1px solid ${C.pink}44` }}>
+            ⚠ Hourly send limit hit · {hourlyLimitHits.toLocaleString()}x
+          </span>
+        )}
       </div>
 
       {/* Category sections */}
@@ -546,27 +567,32 @@ function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntr
         const label   = catLabel[cat] ?? cat.replace(/_/g, ' ')
 
         if (cat === 'toggled_features') {
-          // Group by feature, pick most recent action to determine ON/OFF state
           const byFeature: Record<string, FeatureEntry[]> = {}
           for (const f of entries) {
             if (!byFeature[f.feature]) byFeature[f.feature] = []
             byFeature[f.feature].push(f)
           }
+          const toggledItems = Object.entries(byFeature).map(([feat, rows]) => {
+            const latest = rows.reduce((a, b) => (a.last_seen ?? '') >= (b.last_seen ?? '') ? a : b)
+            return { feat, action: latest.action, last_seen: latest.last_seen }
+          })
           return (
-            <div key={cat}>
-              <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{label}</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 8px' }}>
-                {Object.entries(byFeature).map(([feat, rows]) => {
-                  const sorted  = [...rows].sort((a, b) => b.last_seen.localeCompare(a.last_seen))
-                  const current = sorted[0]
-                  const isOn    = current.action?.toLowerCase().includes('enable') || current.action?.toLowerCase() === 'on'
-                  const isOff   = current.action?.toLowerCase().includes('disable') || current.action?.toLowerCase() === 'off'
-                  const state   = isOn ? 'ON' : isOff ? 'OFF' : current.action ?? '?'
+            <div key={cat} style={{ marginBottom: 12 }}>
+              <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{label}</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {toggledItems.map(({ feat, action, last_seen }) => {
+                  const isOn = action === 'enable'
                   return (
-                    <span key={feat} style={{ fontSize: 12, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 8px', color: C.text, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <span style={{ color: C.textHi }}>{feat.replace(/_/g, ' ')}</span>
-                      <span style={{ color: isOn ? C.green : isOff ? C.pink : C.sub, fontWeight: 700 }}>— {state}</span>
-                      <span style={{ color: C.sub, fontSize: 11 }}>{current.last_seen}</span>
+                    <span key={feat} style={{
+                      background: isOn ? C.cyan + '18' : C.border,
+                      color: isOn ? C.cyan : C.sub,
+                      border: `1px solid ${isOn ? C.cyan + '44' : 'transparent'}`,
+                      borderRadius: 4, padding: '2px 8px', fontSize: 12, fontWeight: 600,
+                    }}>
+                      {isOn ? '● ' : '○ '}{feat.replace(/_/g, ' ')}
+                      <span style={{ fontWeight: 400, marginLeft: 4, fontSize: 11, opacity: 0.7 }}>
+                        {isOn ? 'on' : 'off'}{last_seen ? ` · ${fmtDate(last_seen)}` : ''}
+                      </span>
                     </span>
                   )
                 })}
@@ -576,18 +602,17 @@ function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntr
         }
 
         return (
-          <div key={cat}>
-            <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{label}</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 8px' }}>
+          <div key={cat} style={{ marginBottom: 12 }}>
+            <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{label}</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {entries.map((f, i) => {
                 const dev = String(f.device ?? '').toLowerCase()
                 const showDev = dev && dev !== 'unknown' && dev !== 'null' && dev !== ''
                 return (
-                  <span key={i} style={{ fontSize: 12, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 8px', color: C.text, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ color: C.textHi }}>{f.feature.replace(/_/g, ' ')}</span>
-                    <span style={{ color: C.cyan, fontWeight: 600 }}>{Number(f.total_usage).toLocaleString()}</span>
-                    {showDev && <span style={{ color: C.sub, fontSize: 11 }}>({dev})</span>}
-                    <span style={{ color: C.sub, fontSize: 11 }}>{f.last_seen}</span>
+                  <span key={i} style={{ background: C.border, color: C.text, borderRadius: 4, padding: '2px 8px', fontSize: 12 }}>
+                    {f.feature.replace(/_/g, ' ')} · {f.action}
+                    <span style={{ color: C.sub, marginLeft: 4 }}>{Number(f.total_usage).toLocaleString()}</span>
+                    {showDev && <span style={{ color: C.sub, fontSize: 11, marginLeft: 3 }}>({dev})</span>}
                   </span>
                 )
               })}
@@ -602,13 +627,12 @@ function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntr
 // ── Mailbox card ──────────────────────────────────────────────────────────────
 
 function MailboxCard({
-  mbx, activity, features, weekly, pmfEntries, accountInfo, topNonTitanClient, clientInfo,
+  mbx, activity, features, weekly, accountInfo, topNonTitanClient, clientInfo,
 }: {
   mbx:               Row
   activity:          { sent: number; read: number; received: number } | undefined
   features:          FeatureEntry[]
   weekly:            WeeklyEntry[]
-  pmfEntries:        PmfEntry[]
   accountInfo:       AccountInfo | null
   topNonTitanClient: string | null
   clientInfo:        ClientInfo | null
@@ -752,18 +776,11 @@ function MailboxCard({
 
           {/* Feature usage */}
           {features.length > 0 && (
-            <div style={{ marginBottom: pmfEntries.length > 0 ? 14 : 0 }}>
-              <RowLabel>Feature usage</RowLabel>
+            <div>
+              <RowLabel>Feature usage (last 90d / lifetime)</RowLabel>
               <div style={{ marginTop: 8 }}>
                 <FeatureUsageSection features={features} featureFloor={null} />
               </div>
-            </div>
-          )}
-
-          {pmfEntries.length > 0 && (
-            <div style={{ marginTop: 4 }}>
-              <RowLabel>PMF — Mail ({pmfEntries.length})</RowLabel>
-              {pmfEntries.map(e => <PmfRow key={e.id} entry={e} />)}
             </div>
           )}
         </div>
@@ -964,49 +981,9 @@ function BundleCard({
 
       {/* ── Notes ── */}
       <NotesSection bundleId={Number(bundle.bundle_id)} initialNote={note} />
-
-      {/* ── PMF ── */}
-      {pmfStatus !== 'idle' && (
-        <div style={{ marginBottom: 14 }}>
-          <RowLabel>PMF Feedback</RowLabel>
-          {pmfStatus === 'loading' && (
-            <span style={{ color: C.sub, fontSize: 13 }}>Loading…</span>
-          )}
-          {pmfStatus === 'error' && (
-            <span style={{ color: C.pink, fontSize: 13 }}>Failed to load PMF data.</span>
-          )}
-          {pmfStatus === 'loaded' && sitePmf.length === 0 && mailPmf.length === 0 && (
-            <span style={{ color: C.sub, fontSize: 13 }}>No PMF responses on record.</span>
-          )}
-          {pmfStatus === 'loaded' && mailPmf.length > 0 && (
-            <div style={{ color: C.sub, fontSize: 12, marginBottom: sitePmf.length > 0 ? 10 : 0 }}>
-              {mailPmf.length} mail PMF response{mailPmf.length !== 1 ? 's' : ''} — expand mailboxes above to view
-            </div>
-          )}
-          {pmfStatus === 'loaded' && sitePmf.length > 0 && (
-            <div>
-              <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
-                Site ({sitePmf.length})
-              </div>
-              {sitePmf.map(e => <PmfRow key={e.id} entry={e} />)}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Canny ── */}
-      {(cannyStatus === 'loading' || cannyStatus === 'loaded' || cannyStatus === 'error') && (
-        <div style={{ marginBottom: 14 }}>
-          <RowLabel>Canny feature requests</RowLabel>
-          {cannyStatus === 'loading' && <span style={{ color: C.sub, fontSize: 13 }}>Loading…</span>}
-          {cannyStatus === 'error'   && <span style={{ color: C.pink, fontSize: 13 }}>Failed to load Canny data.</span>}
-          {cannyStatus === 'loaded' && cannyPosts.length === 0 && <span style={{ color: C.sub, fontSize: 13 }}>No Canny activity found.</span>}
-          {cannyStatus === 'loaded' && cannyPosts.map(p => <CannyPostRow key={p.id} post={p} />)}
-        </div>
-      )}
     </div>{/* end panel */}
 
-    {/* ── Mailboxes — separate section outside the order panel ── */}
+    {/* ── Mailboxes — separate section ── */}
     {mailboxes.length > 0 && (
       <div style={{ marginTop: 12 }}>
         <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, paddingLeft: 4 }}>
@@ -1019,12 +996,59 @@ function BundleCard({
             activity={activityMap[Number(mbx.account_id)]}
             features={featureMap[Number(mbx.account_id)] ?? []}
             weekly={weeklyMap[Number(mbx.account_id)] ?? []}
-            pmfEntries={pmfByAcct[Number(mbx.account_id)] ?? []}
             accountInfo={accountInfoMap?.[Number(mbx.account_id)] ?? null}
             topNonTitanClient={topNonTitanClientMap?.[Number(mbx.account_id)] ?? null}
             clientInfo={clientInfoMap?.[Number(mbx.account_id)] ?? null}
           />
         ))}
+      </div>
+    )}
+
+    {/* ── Canny — independent section after mailboxes ── */}
+    {cannyStatus !== 'idle' && (
+      <div style={{ marginTop: 12, background: C.panel, border: `1px solid ${C.borderHi}`, borderRadius: 10, padding: '16px 24px' }}>
+        <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+          Canny feature requests
+        </div>
+        {cannyStatus === 'loading' && <span style={{ color: C.sub, fontSize: 13 }}>Loading…</span>}
+        {cannyStatus === 'error'   && <span style={{ color: C.pink, fontSize: 13 }}>Failed to load Canny data.</span>}
+        {cannyStatus === 'loaded' && cannyPosts.length === 0 && <span style={{ color: C.sub, fontSize: 13 }}>No Canny activity found.</span>}
+        {cannyStatus === 'loaded' && cannyPosts.map(p => <CannyPostRow key={p.id} post={p} />)}
+      </div>
+    )}
+
+    {/* ── PMF — independent section after Canny ── */}
+    {pmfStatus !== 'idle' && (
+      <div style={{ marginTop: 12, background: C.panel, border: `1px solid ${C.borderHi}`, borderRadius: 10, padding: '16px 24px' }}>
+        <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+          PMF feedback
+          {pmfStatus === 'loaded' && (mailPmf.length + sitePmf.length) > 0 && (
+            <span style={{ color: C.sub, fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
+              ({mailPmf.length + sitePmf.length})
+            </span>
+          )}
+        </div>
+        {pmfStatus === 'loading' && <span style={{ color: C.sub, fontSize: 13 }}>Loading…</span>}
+        {pmfStatus === 'error'   && <span style={{ color: C.pink, fontSize: 13 }}>Failed to load PMF data.</span>}
+        {pmfStatus === 'loaded' && mailPmf.length === 0 && sitePmf.length === 0 && (
+          <span style={{ color: C.sub, fontSize: 13 }}>No PMF responses on record.</span>
+        )}
+        {pmfStatus === 'loaded' && mailPmf.length > 0 && (
+          <div style={{ marginBottom: sitePmf.length > 0 ? 16 : 0 }}>
+            <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              Mail ({mailPmf.length})
+            </div>
+            {mailPmf.map(e => <PmfRow key={e.id} entry={e} />)}
+          </div>
+        )}
+        {pmfStatus === 'loaded' && sitePmf.length > 0 && (
+          <div>
+            <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              Site ({sitePmf.length})
+            </div>
+            {sitePmf.map(e => <PmfRow key={e.id} entry={e} />)}
+          </div>
+        )}
       </div>
     )}
     </div>
