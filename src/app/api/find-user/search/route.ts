@@ -212,15 +212,16 @@ export async function POST(req: Request) {
         : Promise.resolve([]),
     ])
 
-    // ── Step 5: Fetch 30d activity + feature usage for all mailboxes (parallel) ─
+    // ── Step 5: Fetch 30d activity + weekly breakdown + feature usage (parallel) ─
 
     const accountIds = mailboxRows.map(r => Number(r.account_id)).filter(Boolean)
     let activityMap: Record<number, { sent: number; read: number; received: number }> = {}
     let featureMap:  Record<number, Array<{ feature: string; total_usage: number; last_seen: string }>> = {}
+    let weeklyMap:   Record<number, Array<{ week: string; sent: number; read: number; received: number }>> = {}
 
     if (accountIds.length) {
       const idsStr = accountIds.join(',')
-      const [activityRows, featureRows] = await Promise.all([
+      const [activityRows, featureRows, weeklyRows] = await Promise.all([
         runQuery(DB, `
           SELECT account_id,
                  CAST(SUM(sent) AS BIGINT) AS sent_30d,
@@ -242,6 +243,18 @@ export async function POST(req: Request) {
           GROUP BY account_id, feature
           ORDER BY account_id, total_usage DESC
         `),
+        runQuery(DB, `
+          SELECT account_id,
+                 CAST(date_trunc('week', dt) AS VARCHAR) AS week,
+                 CAST(SUM(sent) AS BIGINT) AS sent,
+                 CAST(SUM(read) AS BIGINT) AS read,
+                 CAST(SUM(recv) AS BIGINT) AS received
+          FROM flockmail.mailbox_read_sent_recv_mail
+          WHERE account_id IN (${idsStr})
+            AND dt >= current_date - interval '90' day
+          GROUP BY account_id, date_trunc('week', dt)
+          ORDER BY account_id, week DESC
+        `),
       ])
 
       for (const r of activityRows) {
@@ -258,6 +271,16 @@ export async function POST(req: Request) {
           feature:     String(r.feature),
           total_usage: Number(r.total_usage ?? 0),
           last_seen:   String(r.last_seen ?? '').slice(0, 10),
+        })
+      }
+      for (const r of weeklyRows) {
+        const id = Number(r.account_id)
+        if (!weeklyMap[id]) weeklyMap[id] = []
+        weeklyMap[id].push({
+          week:     String(r.week ?? '').slice(0, 10),
+          sent:     Number(r.sent     ?? 0),
+          read:     Number(r.read     ?? 0),
+          received: Number(r.received ?? 0),
         })
       }
     }
@@ -310,6 +333,7 @@ export async function POST(req: Request) {
       allBundleStatus,
       activityMap,
       featureMap,
+      weeklyMap,
     })
 
   } catch (err) {
