@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-const VERSION = 'v0.1'
+const VERSION = 'v0.2'
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
@@ -460,7 +460,7 @@ function MailboxCard({
   mbx, activity, pmfEntries,
 }: {
   mbx:        Row
-  activity:   { sent: number; read: number; received: number }
+  activity:   { sent: number; read: number; received: number } | undefined
   pmfEntries: PmfEntry[]
 }) {
   const [open, setOpen] = useState(false)
@@ -486,11 +486,17 @@ function MailboxCard({
             {mbx.dom_plan_type && <><span style={{ margin: '0 6px' }}>·</span><span style={{ color: planColor(mbx.dom_plan_type), fontWeight: 600 }}>{cap(mbx.dom_plan_type)}</span></>}
             <span style={{ margin: '0 6px' }}>·</span>
             <span>Last 30d: </span>
-            <span>📩 <span style={{ color: C.text }}>{activity.received.toLocaleString()}</span></span>
-            <span style={{ margin: '0 5px' }}>•</span>
-            <span>📨 <span style={{ color: C.text }}>{activity.read.toLocaleString()}</span></span>
-            <span style={{ margin: '0 5px' }}>•</span>
-            <span>📧 <span style={{ color: C.text }}>{activity.sent.toLocaleString()}</span></span>
+            {activity != null ? (
+              <>
+                <span>📩 <span style={{ color: C.text }}>{activity.received.toLocaleString()}</span></span>
+                <span style={{ margin: '0 5px' }}>•</span>
+                <span>📨 <span style={{ color: C.text }}>{activity.read.toLocaleString()}</span></span>
+                <span style={{ margin: '0 5px' }}>•</span>
+                <span>📧 <span style={{ color: C.text }}>{activity.sent.toLocaleString()}</span></span>
+              </>
+            ) : (
+              <span style={{ color: C.border }}>no data</span>
+            )}
           </div>
         </div>
         <span style={{ color: C.sub, fontSize: 14 }}>{open ? '▲' : '▼'}</span>
@@ -586,11 +592,12 @@ function NotesSection({ bundleId, initialNote }: { bundleId: number; initialNote
 // ── Bundle card ───────────────────────────────────────────────────────────────
 
 function BundleCard({
-  data, activityMap, pmfData, cannyPosts, cannyStatus,
+  data, activityMap, pmfData, pmfStatus, cannyPosts, cannyStatus,
 }: {
   data:        BundleData
   activityMap: SearchResult['activityMap']
   pmfData:     PmfEntry[]
+  pmfStatus:   'idle' | 'loading' | 'loaded' | 'error'
   cannyPosts:  CannyPost[]
   cannyStatus: 'idle' | 'loading' | 'loaded' | 'error'
 }) {
@@ -718,18 +725,39 @@ function BundleCard({
             <MailboxCard
               key={mbx.account_id}
               mbx={mbx}
-              activity={activityMap[Number(mbx.account_id)] ?? { sent: 0, read: 0, received: 0 }}
+              activity={activityMap[Number(mbx.account_id)]}
               pmfEntries={pmfByAcct[Number(mbx.account_id)] ?? []}
             />
           ))}
         </div>
       )}
 
-      {/* ── Site PMF ── */}
-      {sitePmf.length > 0 && (
+      {/* ── PMF ── */}
+      {pmfStatus !== 'idle' && (
         <div style={{ marginBottom: 14 }}>
-          <RowLabel>PMF — Site ({sitePmf.length})</RowLabel>
-          {sitePmf.map(e => <PmfRow key={e.id} entry={e} />)}
+          <RowLabel>PMF Feedback</RowLabel>
+          {pmfStatus === 'loading' && (
+            <span style={{ color: C.sub, fontSize: 13 }}>Loading…</span>
+          )}
+          {pmfStatus === 'error' && (
+            <span style={{ color: C.pink, fontSize: 13 }}>Failed to load PMF data.</span>
+          )}
+          {pmfStatus === 'loaded' && sitePmf.length === 0 && mailPmf.length === 0 && (
+            <span style={{ color: C.sub, fontSize: 13 }}>No PMF responses on record.</span>
+          )}
+          {pmfStatus === 'loaded' && mailPmf.length > 0 && (
+            <div style={{ color: C.sub, fontSize: 12, marginBottom: sitePmf.length > 0 ? 10 : 0 }}>
+              {mailPmf.length} mail PMF response{mailPmf.length !== 1 ? 's' : ''} — expand mailboxes above to view
+            </div>
+          )}
+          {pmfStatus === 'loaded' && sitePmf.length > 0 && (
+            <div>
+              <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+                Site ({sitePmf.length})
+              </div>
+              {sitePmf.map(e => <PmfRow key={e.id} entry={e} />)}
+            </div>
+          )}
         </div>
       )}
 
@@ -938,6 +966,7 @@ function FindUser() {
                 data={bundleData}
                 activityMap={result.activityMap}
                 pmfData={pmfStatus === 'loaded' ? pmfData : []}
+                pmfStatus={pmfStatus}
                 cannyPosts={cannyPosts}
                 cannyStatus={cannyStatus}
               />

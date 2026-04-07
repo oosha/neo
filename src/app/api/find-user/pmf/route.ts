@@ -9,6 +9,12 @@ import { sql } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
+type PmfRow = {
+  id: number; account_id: number | null; customer_id: number | null
+  product: string; score: string | null; feedback_text: string | null
+  submitted_at: string; tally_form_id: string | null
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url)
@@ -22,27 +28,27 @@ export async function GET(req: Request) {
     }
 
     // Mail PMF (per mailbox account_id)
-    const mailPmf = accountIds.length
-      ? await sql<{
-          id: number; account_id: number | null; customer_id: number | null
-          product: string; score: string | null; feedback_text: string | null
-          submitted_at: string; tally_form_id: string | null
-        }>`
+    let mailRows: PmfRow[] = []
+    if (accountIds.length) {
+      try {
+        const result = await sql<PmfRow>`
           SELECT id, account_id, customer_id, product, score, feedback_text, submitted_at, tally_form_id
           FROM neo_pmf_feedback
           WHERE account_id = ANY(${accountIds})
           ORDER BY submitted_at DESC
           LIMIT 50
         `
-      : { rows: [] }
+        mailRows = result.rows
+      } catch (err) {
+        console.error('PMF mail query error (table may not exist yet):', err)
+      }
+    }
 
     // Site PMF (per customer — for site-only users or cross-bundle PMF)
-    const sitePmf = customerIdParam
-      ? await sql<{
-          id: number; account_id: number | null; customer_id: number | null
-          product: string; score: string | null; feedback_text: string | null
-          submitted_at: string; tally_form_id: string | null
-        }>`
+    let siteRows: PmfRow[] = []
+    if (customerIdParam) {
+      try {
+        const result = await sql<PmfRow>`
           SELECT id, account_id, customer_id, product, score, feedback_text, submitted_at, tally_form_id
           FROM neo_pmf_feedback
           WHERE customer_id = ${customerIdParam}
@@ -50,9 +56,13 @@ export async function GET(req: Request) {
           ORDER BY submitted_at DESC
           LIMIT 50
         `
-      : { rows: [] }
+        siteRows = result.rows
+      } catch (err) {
+        console.error('PMF site query error (table may not exist yet):', err)
+      }
+    }
 
-    return NextResponse.json({ pmf: [...mailPmf.rows, ...sitePmf.rows] })
+    return NextResponse.json({ pmf: [...mailRows, ...siteRows] })
 
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
