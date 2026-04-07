@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-const VERSION = 'v0.2'
+const VERSION = 'v0.3'
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
@@ -120,12 +120,15 @@ interface BundleData {
   note:        string
 }
 
+interface FeatureEntry { feature: string; total_usage: number; last_seen: string }
+
 interface SearchResult {
   customer:        Row | null
   customerId:      number | null
   bundles:         BundleData[]
   allBundleStatus: Array<{ status: unknown; mailStatus: unknown; siteStatus: unknown }>
   activityMap:     Record<number, { sent: number; read: number; received: number }>
+  featureMap:      Record<number, FeatureEntry[]>
   error?:          string
 }
 
@@ -457,10 +460,11 @@ function CannyPostRow({ post }: { post: CannyPost }) {
 // ── Mailbox card ──────────────────────────────────────────────────────────────
 
 function MailboxCard({
-  mbx, activity, pmfEntries,
+  mbx, activity, features, pmfEntries,
 }: {
   mbx:        Row
   activity:   { sent: number; read: number; received: number } | undefined
+  features:   FeatureEntry[]
   pmfEntries: PmfEntry[]
 }) {
   const [open, setOpen] = useState(false)
@@ -520,6 +524,26 @@ function MailboxCard({
             {mbx.suspend_date && <KV label="Suspended" value={fmtDate(mbx.suspend_date)} color={C.pink} />}
             {mbx.suspension_reason && <KV label="Suspension reason" value={cap(mbx.suspension_reason)} color={C.pink} />}
           </div>
+
+          {features.length > 0 && (
+            <div style={{ marginTop: 4, marginBottom: pmfEntries.length > 0 ? 12 : 0 }}>
+              <RowLabel>Feature usage — last 90d ({features.length} features)</RowLabel>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 10px', marginTop: 6 }}>
+                {features.map(f => (
+                  <span key={f.feature} style={{
+                    fontSize: 12, background: C.card, border: `1px solid ${C.border}`,
+                    borderRadius: 4, padding: '3px 8px', color: C.text,
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}>
+                    <span style={{ color: C.textHi, fontWeight: 600 }}>{f.feature.replace(/_/g, ' ')}</span>
+                    <span style={{ color: C.cyan }}>{Number(f.total_usage).toLocaleString()}</span>
+                    <span style={{ color: C.border }}>·</span>
+                    <span style={{ color: C.sub }}>{f.last_seen}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {pmfEntries.length > 0 && (
             <div style={{ marginTop: 4 }}>
@@ -592,10 +616,11 @@ function NotesSection({ bundleId, initialNote }: { bundleId: number; initialNote
 // ── Bundle card ───────────────────────────────────────────────────────────────
 
 function BundleCard({
-  data, activityMap, pmfData, pmfStatus, cannyPosts, cannyStatus,
+  data, activityMap, featureMap, pmfData, pmfStatus, cannyPosts, cannyStatus,
 }: {
   data:        BundleData
   activityMap: SearchResult['activityMap']
+  featureMap:  SearchResult['featureMap']
   pmfData:     PmfEntry[]
   pmfStatus:   'idle' | 'loading' | 'loaded' | 'error'
   cannyPosts:  CannyPost[]
@@ -726,6 +751,7 @@ function BundleCard({
               key={mbx.account_id}
               mbx={mbx}
               activity={activityMap[Number(mbx.account_id)]}
+              features={featureMap[Number(mbx.account_id)] ?? []}
               pmfEntries={pmfByAcct[Number(mbx.account_id)] ?? []}
             />
           ))}
@@ -965,6 +991,7 @@ function FindUser() {
                 key={bundleData.bundle.bundle_id}
                 data={bundleData}
                 activityMap={result.activityMap}
+                featureMap={result.featureMap ?? {}}
                 pmfData={pmfStatus === 'loaded' ? pmfData : []}
                 pmfStatus={pmfStatus}
                 cannyPosts={cannyPosts}

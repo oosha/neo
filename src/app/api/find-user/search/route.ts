@@ -212,29 +212,53 @@ export async function POST(req: Request) {
         : Promise.resolve([]),
     ])
 
-    // ── Step 5: Fetch 30d email activity for all mailboxes ───────────────────
+    // ── Step 5: Fetch 30d activity + feature usage for all mailboxes (parallel) ─
 
     const accountIds = mailboxRows.map(r => Number(r.account_id)).filter(Boolean)
     let activityMap: Record<number, { sent: number; read: number; received: number }> = {}
+    let featureMap:  Record<number, Array<{ feature: string; total_usage: number; last_seen: string }>> = {}
 
     if (accountIds.length) {
       const idsStr = accountIds.join(',')
-      const activityRows = await runQuery(DB, `
-        SELECT account_id,
-               CAST(SUM(sent) AS BIGINT) AS sent_30d,
-               CAST(SUM(read) AS BIGINT) AS read_30d,
-               CAST(SUM(recv) AS BIGINT) AS received_30d
-        FROM flockmail.mailbox_read_sent_recv_mail
-        WHERE account_id IN (${idsStr})
-          AND dt >= current_date - interval '30' day
-        GROUP BY account_id
-      `)
+      const [activityRows, featureRows] = await Promise.all([
+        runQuery(DB, `
+          SELECT account_id,
+                 CAST(SUM(sent) AS BIGINT) AS sent_30d,
+                 CAST(SUM(read) AS BIGINT) AS read_30d,
+                 CAST(SUM(recv) AS BIGINT) AS received_30d
+          FROM flockmail.mailbox_read_sent_recv_mail
+          WHERE account_id IN (${idsStr})
+            AND dt >= current_date - interval '30' day
+          GROUP BY account_id
+        `),
+        runQuery(DB, `
+          SELECT account_id,
+                 feature,
+                 CAST(SUM(usage) AS BIGINT) AS total_usage,
+                 CAST(MAX(dt) AS VARCHAR) AS last_seen
+          FROM flockmail.titan_features_usage_v4
+          WHERE account_id IN (${idsStr})
+            AND dt >= current_date - interval '90' day
+          GROUP BY account_id, feature
+          ORDER BY account_id, total_usage DESC
+        `),
+      ])
+
       for (const r of activityRows) {
         activityMap[Number(r.account_id)] = {
           sent:     Number(r.sent_30d     ?? 0),
           read:     Number(r.read_30d     ?? 0),
           received: Number(r.received_30d ?? 0),
         }
+      }
+      for (const r of featureRows) {
+        const id = Number(r.account_id)
+        if (!featureMap[id]) featureMap[id] = []
+        featureMap[id].push({
+          feature:     String(r.feature),
+          total_usage: Number(r.total_usage ?? 0),
+          last_seen:   String(r.last_seen ?? '').slice(0, 10),
+        })
       }
     }
 
@@ -285,6 +309,7 @@ export async function POST(req: Request) {
       bundles,
       allBundleStatus,
       activityMap,
+      featureMap,
     })
 
   } catch (err) {
