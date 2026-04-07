@@ -1,0 +1,950 @@
+'use client'
+import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+
+const VERSION = 'v0.1'
+
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const C = {
+  bg: '#0e1117', panel: '#131b26', card: '#0b0f19',
+  border: '#1e2b3c', borderHi: '#2b3f58',
+  text: '#c4d0da', textHi: '#dde8f0', sub: '#7a95ae',
+  cyan: '#4da898', pink: '#a86070', amber: '#a87a40',
+  green: '#407a68', purple: '#6060a0', red: '#a84040',
+  blue: '#4070a8', violet: '#8060a0',
+}
+
+const OFFERING_COLOR: Record<string, string> = {
+  'co.site (free)': C.amber,
+  'co.site (paid)': C.green,
+  'custom domain':  C.cyan,
+}
+const STATUS_COLOR: Record<string, string> = {
+  active: C.green, deleted: C.red, suspended: C.pink, expired: C.amber,
+}
+const PLAN_COLOR: Record<string, string> = {
+  free: C.sub, trial: C.amber, lite: C.cyan, starter: C.amber,
+  basic: C.cyan, standard: C.blue, pro: C.cyan, growth: C.green,
+  scale: C.purple, premium: C.purple,
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function fmtAge(createdAt: string | null | undefined): string {
+  if (!createdAt) return '—'
+  const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86400000)
+  if (days < 1)  return 'today'
+  if (days < 30) return `${days}d`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}mo`
+  const years = Math.floor(months / 12)
+  const rem   = months % 12
+  return rem === 0 ? `${years}yr` : `${years}yr ${rem}mo`
+}
+
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '—'
+  return String(d).slice(0, 10)
+}
+
+function fmtBytes(mb: number | null | undefined): string {
+  if (mb == null) return '—'
+  if (mb < 1024) return `${mb.toFixed(0)} MB`
+  return `${(mb / 1024).toFixed(1)} GB`
+}
+
+function cap(s: string | null | undefined): string {
+  if (!s) return '—'
+  return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ')
+}
+
+function planColor(plan: string | null | undefined): string {
+  return PLAN_COLOR[plan?.toLowerCase() ?? ''] ?? C.sub
+}
+function statusColor(status: string | null | undefined): string {
+  return STATUS_COLOR[status?.toLowerCase() ?? ''] ?? C.sub
+}
+function offeringColor(offering: string | null | undefined): string {
+  return OFFERING_COLOR[offering?.toLowerCase() ?? ''] ?? C.sub
+}
+
+// ── Shared UI primitives ──────────────────────────────────────────────────────
+
+function Badge({ label, color, small }: { label: string; color: string; small?: boolean }) {
+  return (
+    <span style={{
+      background: color + '22', color, border: `1px solid ${color}44`,
+      borderRadius: 4, padding: small ? '1px 6px' : '2px 8px',
+      fontSize: small ? 11 : 12, fontWeight: 600, whiteSpace: 'nowrap',
+    }}>{label}</span>
+  )
+}
+
+function KV({ label, value, color }: { label: string; value: React.ReactNode; color?: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div style={{ color: C.sub, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+      <div style={{ color: color ?? C.textHi, fontSize: 14 }}>{value || '—'}</div>
+    </div>
+  )
+}
+
+function Section({ title, children, id }: { title: string; children: React.ReactNode; id?: string }) {
+  return (
+    <div id={id} style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, padding: '18px 22px', marginBottom: 14 }}>
+      <div style={{ color: C.textHi, fontWeight: 700, fontSize: 15, marginBottom: 14 }}>{title}</div>
+      {children}
+    </div>
+  )
+}
+
+function RowLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>
+      {children}
+    </div>
+  )
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Row = Record<string, any>
+
+interface BundleData {
+  bundle:      Row
+  mailOrder:   Row | null
+  siteOrder:   Row | null
+  domainOrder: Row | null
+  mailboxes:   Row[]
+  note:        string
+}
+
+interface SearchResult {
+  customer:        Row | null
+  customerId:      number | null
+  bundles:         BundleData[]
+  allBundleStatus: Array<{ status: unknown; mailStatus: unknown; siteStatus: unknown }>
+  activityMap:     Record<number, { sent: number; read: number; received: number }>
+  error?:          string
+}
+
+interface PmfEntry {
+  id: number; account_id: number | null; customer_id: number | null
+  product: string; score: string | null; feedback_text: string | null
+  submitted_at: string; tally_form_id: string | null
+}
+
+interface CannyAction { type: 'created' | 'voted' | 'commented'; email: string; date: string; comment?: string }
+interface CannyPost   { id: string; title: string; details: string | null; score: number; board: string; status: string; url: string | null; actions: CannyAction[] }
+
+// ── Customer summary header ───────────────────────────────────────────────────
+
+function CustomerHeader({
+  customer, customerId, allBundleStatus, bundleCount,
+}: {
+  customer:        Row | null
+  customerId:      number | null
+  allBundleStatus: SearchResult['allBundleStatus']
+  bundleCount:     number
+}) {
+  const activeBundles   = allBundleStatus.filter(b => String(b.status   ?? '').toLowerCase() === 'active').length
+  const activeMail      = allBundleStatus.filter(b => String(b.mailStatus ?? '').toLowerCase() === 'active').length
+  const activeSite      = allBundleStatus.filter(b => String(b.siteStatus ?? '').toLowerCase() === 'active').length
+  const totalMail       = allBundleStatus.filter(b => b.mailStatus != null).length
+  const totalSite       = allBundleStatus.filter(b => b.siteStatus != null).length
+
+  const name = customer?.customer_name ?? customer?.company_name ?? null
+
+  return (
+    <div style={{
+      background: C.panel, border: `1px solid ${C.borderHi}`, borderRadius: 8,
+      padding: '14px 22px', marginBottom: 16,
+      display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
+    }}>
+      <div>
+        <div style={{ color: C.textHi, fontWeight: 700, fontSize: 16 }}>
+          {name ?? 'Customer'}{' '}
+          {customerId && <span style={{ color: C.sub, fontWeight: 400, fontSize: 13 }}>#{customerId}</span>}
+        </div>
+        {customer?.customer_email && (
+          <div style={{ color: C.sub, fontSize: 12, marginTop: 2 }}>{customer.customer_email}</div>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13 }}>
+        <span style={{ color: C.sub }}>
+          <span style={{ color: C.textHi, fontWeight: 600 }}>{activeBundles} of {bundleCount}</span> active bundles
+        </span>
+        {totalMail > 0 && (
+          <span style={{ color: C.sub }}>
+            <span style={{ color: C.textHi, fontWeight: 600 }}>{activeMail} of {totalMail}</span> active mail orders
+          </span>
+        )}
+        {totalSite > 0 && (
+          <span style={{ color: C.sub }}>
+            <span style={{ color: C.textHi, fontWeight: 600 }}>{activeSite} of {totalSite}</span> active site orders
+          </span>
+        )}
+        {customer?.country && (
+          <span style={{ color: C.sub }}>📍 {customer.country}{customer.city ? `, ${customer.city}` : ''}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Upgrade path helper ───────────────────────────────────────────────────────
+
+function UpgradePath({ init, current, label }: { init: string | null; current: string | null; label?: string }) {
+  if (!init && !current) return <span style={{ color: C.sub }}>—</span>
+  if (!init || init === current) {
+    return <span style={{ color: planColor(current) }}>{cap(current)}</span>
+  }
+  return (
+    <span style={{ fontSize: 13 }}>
+      {label && <span style={{ color: C.sub, fontSize: 11, marginRight: 4 }}>{label}</span>}
+      <span style={{ color: planColor(init) }}>{cap(init)}</span>
+      <span style={{ color: C.sub, margin: '0 5px' }}>→</span>
+      <span style={{ color: planColor(current) }}>{cap(current)}</span>
+    </span>
+  )
+}
+
+// ── Product rows (mail / site / domain) ───────────────────────────────────────
+
+function MailProductRow({ order }: { order: Row }) {
+  const [open, setOpen] = useState(false)
+  const ageTxt = fmtAge(order.created_at)
+  const upgraded = order.init_plan_type && order.plan_type && order.init_plan_type !== order.plan_type
+
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 8, overflow: 'hidden' }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: open ? C.card : 'transparent' }}
+      >
+        <span style={{ fontSize: 16 }}>📧</span>
+        <span style={{ color: C.textHi, fontWeight: 600, fontSize: 14 }}>Neo Mail</span>
+        <Badge label={cap(order.plan_type ?? order.plan_name)} color={planColor(order.plan_type)} small />
+        <Badge label={cap(order.status)} color={statusColor(order.status)} small />
+        <span style={{ color: C.sub, fontSize: 12 }}>
+          {fmtDate(order.created_at)} · {ageTxt} old
+        </span>
+        {upgraded && (
+          <span style={{ color: C.sub, fontSize: 12 }}>
+            · <span style={{ color: planColor(order.init_plan_type) }}>{cap(order.init_plan_type)}</span>
+            <span style={{ margin: '0 4px' }}>→</span>
+            <span style={{ color: planColor(order.plan_type) }}>{cap(order.plan_type)}</span>
+          </span>
+        )}
+        {order.is_mx_verified ? (
+          <span style={{ color: C.green, fontSize: 12 }}>· ✓ MX {fmtDate(order.mx_verified_ts)}</span>
+        ) : (
+          <span style={{ color: C.pink, fontSize: 12 }}>· ✗ MX unverified</span>
+        )}
+        <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div style={{ padding: '12px 14px', background: C.card, borderTop: `1px solid ${C.border}` }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px 20px', marginBottom: 10 }}>
+            <KV label="Order ID"     value={order.order_id} />
+            <KV label="Created"      value={fmtDate(order.created_at)} />
+            <KV label="Expiry"       value={fmtDate(order.expiry_date)} />
+            <KV label="Billing"      value={cap(order.billing_cycle)} />
+            <KV label="Plan"         value={<UpgradePath init={order.init_plan_type} current={order.plan_type} />} />
+            <KV label="Plan name"    value={order.plan_name} />
+            <KV label="First paid"   value={cap(order.first_payment_plan_type)} color={planColor(order.first_payment_plan_type)} />
+            <KV label="Mailboxes"    value={`${order.active_mailbox_count ?? '—'} active / ${order.mailbox_count ?? '—'} total`} />
+            <KV label="Catch-all"    value={order.catch_all_enabled ? '✓ Enabled' : order.catch_all_enabled === 0 ? '✗ Disabled' : '—'} color={order.catch_all_enabled ? C.cyan : undefined} />
+            <KV label="Setup type"   value={cap(order.setup_type)} />
+            <KV label="Domain type"  value={cap(order.domain_type)} />
+            <KV label="MX verified"  value={order.is_mx_verified ? `✓ ${fmtDate(order.mx_verified_ts)}` : '✗'} color={order.is_mx_verified ? C.green : C.pink} />
+            <KV label="Domain ownership" value={order.is_domain_ownership_verified ? `✓ ${fmtDate(order.dom_ownership_verified_ts)}` : '✗'} color={order.is_domain_ownership_verified ? C.green : C.pink} />
+            <KV label="First sent"   value={fmtDate(order.first_sent_dt ?? order.neo_client_first_sent_dt)} />
+            <KV label="Total sent"   value={order.total_mails_sent != null ? Number(order.total_mails_sent).toLocaleString() : '—'} />
+            <KV label="Active 7d / 30d / 90d" value={`${order.has_sent_read_last_7d ? '✓' : '✗'} · ${order.has_sent_read_last_30d ? '✓' : '✗'} · ${order.has_sent_read_last_90d ? '✓' : '✗'}`} />
+            {order.suspend_date && <KV label="Suspended" value={fmtDate(order.suspend_date)} color={C.pink} />}
+            {order.suspension_reason && <KV label="Suspension reason" value={cap(order.suspension_reason)} color={C.pink} />}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SiteProductRow({ order }: { order: Row }) {
+  const [open, setOpen] = useState(false)
+  const ageTxt  = fmtAge(order.created_at)
+  const upgraded = order.init_plan_type && order.plan_type && order.init_plan_type !== order.plan_type
+
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 8, overflow: 'hidden' }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: open ? C.card : 'transparent' }}
+      >
+        <span style={{ fontSize: 16 }}>🌐</span>
+        <span style={{ color: C.textHi, fontWeight: 600, fontSize: 14 }}>Neo Site</span>
+        <Badge label={cap(order.plan_type)} color={planColor(order.plan_type)} small />
+        <Badge label={cap(order.status)} color={statusColor(order.status)} small />
+        {order.neo_site_status && <Badge label={cap(order.neo_site_status)} color={C.violet} small />}
+        <span style={{ color: C.sub, fontSize: 12 }}>
+          {fmtDate(order.created_at)} · {ageTxt} old
+        </span>
+        {upgraded && (
+          <span style={{ color: C.sub, fontSize: 12 }}>
+            · <span style={{ color: planColor(order.init_plan_type) }}>{cap(order.init_plan_type)}</span>
+            <span style={{ margin: '0 4px' }}>→</span>
+            <span style={{ color: planColor(order.plan_type) }}>{cap(order.plan_type)}</span>
+          </span>
+        )}
+        {order.first_site_publish_dt && (
+          <span style={{ color: C.green, fontSize: 12 }}>· Published {fmtDate(order.first_site_publish_dt)}</span>
+        )}
+        <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div style={{ padding: '12px 14px', background: C.card, borderTop: `1px solid ${C.border}` }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px 20px' }}>
+            <KV label="Order ID"     value={order.order_id} />
+            <KV label="Created"      value={fmtDate(order.created_at)} />
+            <KV label="Expiry"       value={fmtDate(order.expiry_date)} />
+            <KV label="Billing"      value={cap(order.billing_cycle)} />
+            <KV label="Plan"         value={<UpgradePath init={order.init_plan_type} current={order.plan_type} />} />
+            <KV label="Site status"  value={cap(order.neo_site_status)} />
+            <KV label="Site state"   value={cap(order.neo_site_state)} />
+            <KV label="Product source" value={cap(order.product_source)} />
+            <KV label="Theme"        value={cap(order.product_theme)} />
+            <KV label="First published" value={fmtDate(order.first_site_publish_dt)} color={order.first_site_publish_dt ? C.green : undefined} />
+            <KV label="A record"     value={order.a_verified ? `✓ ${fmtDate(order.a_verified_ts)}` : '✗'} color={order.a_verified ? C.green : C.pink} />
+            <KV label="WWW CNAME"    value={order.www_cname_verified ? `✓ ${fmtDate(order.www_cname_verified_ts)}` : '✗'} color={order.www_cname_verified ? C.green : C.pink} />
+            <KV label="First paid"   value={fmtDate(order.first_payment_date)} />
+            <KV label="Renewals"     value={order.renewals ?? '—'} />
+            <KV label="Trial expiry" value={fmtDate(order.trial_expiry_date)} />
+            {order.suspend_date && <KV label="Suspended" value={fmtDate(order.suspend_date)} color={C.pink} />}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DomainProductRow({ order, offering }: { order: Row | null; offering: string | null }) {
+  const [open, setOpen] = useState(false)
+  const ofColor = offeringColor(offering)
+  const label   = offering ?? 'Neo Domain'
+
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 8, overflow: 'hidden' }}>
+      <div
+        onClick={() => order ? setOpen(o => !o) : undefined}
+        style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: order ? 'pointer' : 'default', background: open ? C.card : 'transparent' }}
+      >
+        <span style={{ fontSize: 16 }}>🔗</span>
+        <span style={{ color: C.textHi, fontWeight: 600, fontSize: 14 }}>Neo Domain</span>
+        <Badge label={cap(label)} color={ofColor} small />
+        {order && <Badge label={cap(order.status)} color={statusColor(order.status)} small />}
+        {order?.plan_type && <Badge label={cap(order.plan_type)} color={planColor(order.plan_type)} small />}
+        <span style={{ color: C.sub, fontSize: 12 }}>No upgrade path</span>
+        {order && <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▲' : '▼'}</span>}
+      </div>
+      {open && order && (
+        <div style={{ padding: '12px 14px', background: C.card, borderTop: `1px solid ${C.border}` }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px 20px' }}>
+            <KV label="Order ID"   value={order.order_id} />
+            <KV label="Created"    value={fmtDate(order.created_at)} />
+            <KV label="Expiry"     value={fmtDate(order.expiry_date)} />
+            <KV label="Billing"    value={cap(order.billing_cycle)} />
+            <KV label="Plan"       value={cap(order.plan_type)} color={planColor(order.plan_type)} />
+            <KV label="First paid" value={fmtDate(order.first_payment_date)} />
+            {order.trial_expiry_date && <KV label="Trial expiry" value={fmtDate(order.trial_expiry_date)} />}
+            {order.suspend_date && <KV label="Suspended" value={fmtDate(order.suspend_date)} color={C.pink} />}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── PMF row ───────────────────────────────────────────────────────────────────
+
+const PMF_SCORE_COLOR: Record<string, string> = {
+  very_disappointed:     C.pink,
+  somewhat_disappointed: C.amber,
+  not_disappointed:      C.sub,
+}
+const PMF_SCORE_LABEL: Record<string, string> = {
+  very_disappointed:     'Very disappointed',
+  somewhat_disappointed: 'Somewhat disappointed',
+  not_disappointed:      'Not disappointed',
+}
+
+function PmfRow({ entry }: { entry: PmfEntry }) {
+  const [open, setOpen] = useState(false)
+  const color    = PMF_SCORE_COLOR[entry.score ?? ''] ?? C.sub
+  const scoreLabel = PMF_SCORE_LABEL[entry.score ?? ''] ?? cap(entry.score)
+  return (
+    <div
+      onClick={() => setOpen(o => !o)}
+      style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: '8px 12px', marginBottom: 6, cursor: 'pointer', background: open ? C.card : 'transparent' }}
+    >
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ color, fontWeight: 700, fontSize: 13 }}>{scoreLabel || '—'}</span>
+        <Badge label={entry.product === 'mail' ? '📧 Mail' : '🌐 Site'} color={entry.product === 'mail' ? C.cyan : C.violet} small />
+        <span style={{ color: C.sub, fontSize: 12 }}>{fmtDate(entry.submitted_at)}</span>
+        {entry.account_id && <span style={{ color: C.sub, fontSize: 11 }}>acct {entry.account_id}</span>}
+        {!open && entry.feedback_text && (
+          <span style={{ color: C.sub, fontSize: 12, flex: 1 }}>{entry.feedback_text.slice(0, 120)}…</span>
+        )}
+      </div>
+      {open && entry.feedback_text && (
+        <div style={{ marginTop: 8, color: C.text, fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+          {entry.feedback_text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Canny post row ────────────────────────────────────────────────────────────
+
+const ACTION_COLORS: Record<string, string> = { created: '#6366f1', voted: '#10b981', commented: '#f59e0b' }
+
+function CannyPostRow({ post }: { post: CannyPost }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ borderBottom: `1px solid ${C.border}`, paddingBottom: 12, marginBottom: 12 }}>
+      <div onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flexShrink: 0, paddingTop: 2 }}>
+          {post.actions.map((a, i) => (
+            <span key={i} style={{ fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: ACTION_COLORS[a.type] + '22', color: ACTION_COLORS[a.type], textTransform: 'uppercase', letterSpacing: '0.04em' }}>{a.type}</span>
+          ))}
+        </div>
+        <span style={{ color: C.textHi, fontSize: 14, fontWeight: 600, flex: 1 }}>
+          {post.title}
+          {post.url && <a href={post.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: C.cyan, marginLeft: 6, fontSize: 11 }}>↗</a>}
+        </span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+          <span style={{ color: C.sub, fontSize: 12 }}>👍 {post.score}</span>
+          <span style={{ color: C.sub, fontSize: 12, background: C.border + '88', padding: '1px 6px', borderRadius: 3 }}>{post.board}</span>
+          {post.status && post.status !== 'open' && <span style={{ color: C.sub, fontSize: 11 }}>{post.status}</span>}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
+        {post.actions.map((a, i) => (
+          <span key={i} style={{ fontSize: 12, color: C.sub }}>
+            <span style={{ color: ACTION_COLORS[a.type] }}>{a.type}</span>{' by '}
+            <span style={{ color: C.text }}>{a.email}</span>{' on '}
+            <span style={{ color: C.text }}>{a.date}</span>
+          </span>
+        ))}
+      </div>
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          {post.details && <div style={{ fontSize: 13, color: C.text, marginBottom: 8, lineHeight: 1.5 }}>{post.details}</div>}
+          {post.actions.filter(a => a.type === 'commented' && a.comment).map((a, i) => (
+            <div key={i} style={{ fontSize: 13, color: C.text, background: C.border + '44', borderLeft: `3px solid ${ACTION_COLORS.commented}`, padding: '6px 10px', borderRadius: '0 4px 4px 0', marginBottom: 6 }}>
+              <span style={{ color: C.sub, fontSize: 11, display: 'block', marginBottom: 4 }}>Comment by {a.email} on {a.date}</span>
+              {a.comment}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Mailbox card ──────────────────────────────────────────────────────────────
+
+function MailboxCard({
+  mbx, activity, pmfEntries,
+}: {
+  mbx:        Row
+  activity:   { sent: number; read: number; received: number }
+  pmfEntries: PmfEntry[]
+}) {
+  const [open, setOpen] = useState(false)
+  const displayName = mbx.name || [mbx.first_name, mbx.last_name].filter(Boolean).join(' ') || null
+  const ageTxt = fmtAge(mbx.created_at)
+
+  return (
+    <div style={{ border: `1px solid ${mbx.is_admin ? C.cyan + '44' : C.border}`, borderRadius: 8, marginBottom: 10, overflow: 'hidden' }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: open ? '#0f1520' : 'transparent' }}
+      >
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ color: C.textHi, fontWeight: 700, fontSize: 15 }}>{mbx.email ?? `account ${mbx.account_id}`}</span>
+            {displayName && <span style={{ color: C.sub, fontSize: 13 }}>· {displayName}</span>}
+            {mbx.is_admin ? <span style={{ color: C.cyan, fontSize: 11, fontWeight: 700, background: C.cyan + '18', padding: '1px 6px', borderRadius: 3 }}>ADMIN</span> : null}
+            <Badge label={cap(mbx.status)} color={statusColor(mbx.status)} small />
+            {mbx.is_generic_lhs ? <Badge label="generic" color={C.sub} small /> : null}
+          </div>
+          <div style={{ color: C.sub, fontSize: 12, marginTop: 5 }}>
+            {ageTxt} old
+            {mbx.dom_plan_type && <><span style={{ margin: '0 6px' }}>·</span><span style={{ color: planColor(mbx.dom_plan_type), fontWeight: 600 }}>{cap(mbx.dom_plan_type)}</span></>}
+            <span style={{ margin: '0 6px' }}>·</span>
+            <span>Last 30d: </span>
+            <span>📩 <span style={{ color: C.text }}>{activity.received.toLocaleString()}</span></span>
+            <span style={{ margin: '0 5px' }}>•</span>
+            <span>📨 <span style={{ color: C.text }}>{activity.read.toLocaleString()}</span></span>
+            <span style={{ margin: '0 5px' }}>•</span>
+            <span>📧 <span style={{ color: C.text }}>{activity.sent.toLocaleString()}</span></span>
+          </div>
+        </div>
+        <span style={{ color: C.sub, fontSize: 14 }}>{open ? '▲' : '▼'}</span>
+      </div>
+
+      {open && (
+        <div style={{ padding: '14px 18px', background: C.card, borderTop: `1px solid ${C.border}` }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px 20px', marginBottom: 16 }}>
+            <KV label="Account ID"       value={mbx.account_id} />
+            <KV label="Created"          value={fmtDate(mbx.created_at)} />
+            <KV label="Age"              value={ageTxt} />
+            <KV label="Plan"             value={<UpgradePath init={mbx.dom_init_plan_type} current={mbx.dom_plan_type} />} />
+            <KV label="Neo Offering"     value={cap(mbx.neo_offering)} color={offeringColor(mbx.neo_offering)} />
+            <KV label="Country"          value={mbx.country} />
+            <KV label="Storage used"     value={fmtBytes(mbx.size_used)} />
+            <KV label="Domain status"    value={cap(mbx.dom_status)} color={statusColor(mbx.dom_status)} />
+            <KV label="Active 7d/30d/90d" value={`${mbx.has_sent_read_last_7d ? '✓' : '✗'} · ${mbx.has_sent_read_last_30d ? '✓' : '✗'} · ${mbx.has_sent_read_last_90d ? '✓' : '✗'}`} />
+            {mbx.referral_code && <KV label="Referral code" value={mbx.referral_code} />}
+            {mbx.referred_invitee_count > 0 && <KV label="Referrals" value={`${mbx.referred_invitee_count} sent`} />}
+            {mbx.referral_reward_earned > 0 && <KV label="Reward earned" value={`${mbx.referral_reward_earned}`} />}
+            {mbx.suspend_date && <KV label="Suspended" value={fmtDate(mbx.suspend_date)} color={C.pink} />}
+            {mbx.suspension_reason && <KV label="Suspension reason" value={cap(mbx.suspension_reason)} color={C.pink} />}
+          </div>
+
+          {pmfEntries.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <RowLabel>PMF — Mail ({pmfEntries.length})</RowLabel>
+              {pmfEntries.map(e => <PmfRow key={e.id} entry={e} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Notes section ─────────────────────────────────────────────────────────────
+
+function NotesSection({ bundleId, initialNote }: { bundleId: number; initialNote: string }) {
+  const [note, setNote]       = useState(initialNote)
+  const [editing, setEditing] = useState(!initialNote)
+  const [saving, setSaving]   = useState(false)
+  const [saved, setSaved]     = useState(false)
+
+  const save = async () => {
+    setSaving(true)
+    await fetch('/api/find-user/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bundle_id: bundleId, note }),
+    })
+    setSaving(false); setSaved(true); setEditing(false)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, padding: '16px 20px', marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{ color: C.textHi, fontWeight: 700, fontSize: 14 }}>Notes</span>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {saved && <span style={{ color: C.green, fontSize: 13 }}>✓ Saved</span>}
+          {!editing && note && (
+            <button onClick={() => setEditing(true)} style={{ background: 'none', border: 'none', padding: 0, color: C.sub, fontSize: 13, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'inherit' }}>Edit</button>
+          )}
+        </div>
+      </div>
+      {!editing
+        ? <div style={{ color: C.textHi, fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{note}</div>
+        : (
+          <div>
+            <textarea
+              value={note}
+              onChange={e => { setNote(e.target.value); setSaved(false) }}
+              placeholder="Pre-interview notes, context, talking points…"
+              autoFocus
+              style={{ width: '100%', minHeight: 80, background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, color: C.textHi, fontSize: 14, fontFamily: 'inherit', padding: '10px 12px', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
+            />
+            <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button onClick={save} disabled={saving} style={{ background: saving ? C.border : C.cyan, color: saving ? C.sub : '#0e1117', border: 'none', borderRadius: 6, padding: '7px 18px', fontWeight: 700, fontSize: 13, cursor: saving ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                {saving ? 'Saving…' : 'Save note'}
+              </button>
+              {(note !== initialNote || initialNote) && (
+                <button onClick={() => { setNote(initialNote); setEditing(false) }} style={{ background: 'none', border: 'none', padding: 0, color: C.sub, fontSize: 13, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'inherit' }}>Cancel</button>
+              )}
+            </div>
+          </div>
+        )
+      }
+    </div>
+  )
+}
+
+// ── Bundle card ───────────────────────────────────────────────────────────────
+
+function BundleCard({
+  data, activityMap, pmfData, cannyPosts, cannyStatus,
+}: {
+  data:        BundleData
+  activityMap: SearchResult['activityMap']
+  pmfData:     PmfEntry[]
+  cannyPosts:  CannyPost[]
+  cannyStatus: 'idle' | 'loading' | 'loaded' | 'error'
+}) {
+  const { bundle, mailOrder, siteOrder, domainOrder, mailboxes, note } = data
+  const [personaOpen, setPersonaOpen] = useState(false)
+  const [utmOpen, setUtmOpen]         = useState(false)
+
+  const hasPersona = bundle.role_in_business || bundle.signup_reason || bundle.employee_count || bundle.business_industry
+  const hasUtm     = bundle.utm_source || bundle.utm_medium || bundle.utm_campaign || bundle.utm_term
+
+  const bundleStatusColor = statusColor(bundle.status)
+  const ofColor           = offeringColor(bundle.neo_offering)
+
+  // PMF: split mail (per account_id) vs site (all)
+  const accountIds  = new Set(mailboxes.map(m => Number(m.account_id)))
+  const mailPmf     = pmfData.filter(e => e.product === 'mail' && e.account_id != null && accountIds.has(e.account_id))
+  const sitePmf     = pmfData.filter(e => e.product === 'site')
+  const pmfByAcct   = mailPmf.reduce<Record<number, PmfEntry[]>>((acc, e) => {
+    const id = Number(e.account_id)
+    if (!acc[id]) acc[id] = []
+    acc[id].push(e)
+    return acc
+  }, {})
+
+  return (
+    <div id={`bundle-${bundle.bundle_id}`} style={{ background: C.panel, border: `1px solid ${C.borderHi}`, borderRadius: 10, padding: '20px 24px', marginBottom: 20 }}>
+
+      {/* ── Bundle header ── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <a href={`https://${bundle.domain_name}`} target="_blank" rel="noopener noreferrer"
+               style={{ color: C.textHi, fontWeight: 800, fontSize: 20, textDecoration: 'none', borderBottom: `1px solid ${C.borderHi}` }}>
+              {bundle.domain_name}
+            </a>
+            <Badge label={cap(bundle.status)} color={bundleStatusColor} />
+            {bundle.neo_offering && <Badge label={cap(bundle.neo_offering)} color={ofColor} />}
+            {bundle.product_source && (
+              <Badge label={`from ${bundle.product_source}`} color={bundle.product_source === 'site' ? C.violet : C.cyan} />
+            )}
+            {bundle.country && <span style={{ color: C.sub, fontSize: 13 }}>📍 {bundle.country}</span>}
+          </div>
+          <div style={{ color: C.sub, fontSize: 12, marginTop: 5, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <span>Bundle <span style={{ color: C.text }}>{bundle.bundle_id}</span></span>
+            {bundle.customer_id && <span>Customer <span style={{ color: C.text }}>{bundle.customer_id}</span></span>}
+            <span>Created <span style={{ color: C.text }}>{fmtDate(bundle.created_at)}</span></span>
+            {bundle.neo_site_status && <span>Site: <span style={{ color: C.violet }}>{cap(bundle.neo_site_status)}</span></span>}
+            {bundle.first_site_publish_dt && <span>Published <span style={{ color: C.green }}>{fmtDate(bundle.first_site_publish_dt)}</span></span>}
+            {bundle.billing_cycle && <span>Billing: <span style={{ color: C.text }}>{cap(bundle.billing_cycle)}</span></span>}
+            {bundle.is_paid === 1 && <span style={{ color: C.green }}>✓ Paid</span>}
+            {bundle.suspend_date && <span style={{ color: C.pink }}>Suspended {fmtDate(bundle.suspend_date)}</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Products ── */}
+      <div style={{ marginBottom: 14 }}>
+        <RowLabel>Products</RowLabel>
+        {mailOrder   && <MailProductRow   order={mailOrder} />}
+        {siteOrder   && <SiteProductRow   order={siteOrder} />}
+        {(domainOrder || bundle.neo_domain_order_id) && (
+          <DomainProductRow order={domainOrder} offering={bundle.neo_offering} />
+        )}
+        {!mailOrder && !siteOrder && !domainOrder && (
+          <span style={{ color: C.sub, fontSize: 13 }}>No product orders found.</span>
+        )}
+      </div>
+
+      {/* ── UTM / Visit info (collapsible) ── */}
+      {hasUtm && (
+        <div style={{ marginBottom: 14 }}>
+          <div
+            onClick={() => setUtmOpen(o => !o)}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: utmOpen ? 8 : 0 }}
+          >
+            <RowLabel>Visit / UTM info</RowLabel>
+            <span style={{ color: C.sub, fontSize: 12, marginBottom: 5 }}>{utmOpen ? '▲' : '▼'}</span>
+          </div>
+          {utmOpen && (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingLeft: 4 }}>
+              {[
+                ['Source',    bundle.utm_source],
+                ['Medium',    bundle.utm_medium],
+                ['Campaign',  bundle.utm_campaign],
+                ['Content',   bundle.utm_content],
+                ['Term',      bundle.utm_term],
+                ['Device',    bundle.signup_device],
+              ].filter(([, v]) => v).map(([k, v]) => (
+                <span key={k as string} style={{ fontSize: 12, background: C.card, border: `1px solid ${C.border}`, borderRadius: 4, padding: '3px 8px', color: C.text }}>
+                  <span style={{ color: C.sub }}>{k}: </span>{v}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Persona survey (collapsible) ── */}
+      {hasPersona && (
+        <div style={{ marginBottom: 14 }}>
+          <div
+            onClick={() => setPersonaOpen(o => !o)}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: personaOpen ? 8 : 0 }}
+          >
+            <RowLabel>Persona survey</RowLabel>
+            <span style={{ color: C.sub, fontSize: 12, marginBottom: 5 }}>{personaOpen ? '▲' : '▼'}</span>
+          </div>
+          {personaOpen && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px 20px', paddingLeft: 4 }}>
+              <KV label="Role"          value={cap(bundle.role_in_business)} />
+              <KV label="Reason"        value={cap(bundle.signup_reason)} />
+              <KV label="Employees"     value={bundle.employee_count != null ? String(bundle.employee_count) : null} />
+              <KV label="Industry"      value={cap(bundle.business_industry)} />
+              <KV label="Company"       value={bundle.company_name} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Mailboxes ── */}
+      {mailboxes.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <RowLabel>Mailboxes ({mailboxes.length})</RowLabel>
+          {mailboxes.map(mbx => (
+            <MailboxCard
+              key={mbx.account_id}
+              mbx={mbx}
+              activity={activityMap[Number(mbx.account_id)] ?? { sent: 0, read: 0, received: 0 }}
+              pmfEntries={pmfByAcct[Number(mbx.account_id)] ?? []}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── Site PMF ── */}
+      {sitePmf.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <RowLabel>PMF — Site ({sitePmf.length})</RowLabel>
+          {sitePmf.map(e => <PmfRow key={e.id} entry={e} />)}
+        </div>
+      )}
+
+      {/* ── Canny ── */}
+      {(cannyStatus === 'loading' || cannyStatus === 'loaded' || cannyStatus === 'error') && (
+        <div style={{ marginBottom: 14 }}>
+          <RowLabel>Canny feature requests</RowLabel>
+          {cannyStatus === 'loading' && <span style={{ color: C.sub, fontSize: 13 }}>Loading…</span>}
+          {cannyStatus === 'error'   && <span style={{ color: C.pink, fontSize: 13 }}>Failed to load Canny data.</span>}
+          {cannyStatus === 'loaded' && cannyPosts.length === 0 && <span style={{ color: C.sub, fontSize: 13 }}>No Canny activity found.</span>}
+          {cannyStatus === 'loaded' && cannyPosts.map(p => <CannyPostRow key={p.id} post={p} />)}
+        </div>
+      )}
+
+      {/* ── Notes ── */}
+      <NotesSection bundleId={Number(bundle.bundle_id)} initialNote={note} />
+    </div>
+  )
+}
+
+// ── Search types ──────────────────────────────────────────────────────────────
+
+type SearchType = 'domain' | 'email' | 'bundle_id' | 'order_id' | 'customer_id' | 'account_id'
+
+const SEARCH_TYPES: { value: SearchType; label: string; placeholder: string }[] = [
+  { value: 'domain',      label: 'Domain',      placeholder: 'mybiz.co.site' },
+  { value: 'email',       label: 'Email',       placeholder: 'user@mybiz.co.site' },
+  { value: 'bundle_id',   label: 'Bundle ID',   placeholder: '123456' },
+  { value: 'order_id',    label: 'Order ID',    placeholder: '789012' },
+  { value: 'customer_id', label: 'Customer ID', placeholder: '456789' },
+  { value: 'account_id',  label: 'Account ID',  placeholder: '987654' },
+]
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function FindUserPage() {
+  return <Suspense><FindUser /></Suspense>
+}
+
+function FindUser() {
+  const params = useSearchParams()
+
+  const [searchType,  setSearchType]  = useState<SearchType>('domain')
+  const [searchValue, setSearchValue] = useState('')
+  const [loading,     setLoading]     = useState(false)
+  const [result,      setResult]      = useState<SearchResult | null>(null)
+  const [error,       setError]       = useState<string | null>(null)
+
+  // PMF — single async load for all resolved bundles
+  const [pmfStatus, setPmfStatus] = useState<'idle'|'loading'|'loaded'|'error'>('idle')
+  const [pmfData,   setPmfData]   = useState<PmfEntry[]>([])
+
+  // Canny — single async load by mailbox emails
+  const [cannyStatus, setCannyStatus] = useState<'idle'|'loading'|'loaded'|'error'>('idle')
+  const [cannyPosts,  setCannyPosts]  = useState<CannyPost[]>([])
+
+  const fetchPmf = useCallback(async (accountIds: number[], customerId: number | null) => {
+    if (!accountIds.length && !customerId) return
+    setPmfStatus('loading'); setPmfData([])
+    try {
+      const qs = new URLSearchParams()
+      if (accountIds.length) qs.set('account_ids', accountIds.join(','))
+      if (customerId)        qs.set('customer_id', String(customerId))
+      const res  = await fetch(`/api/find-user/pmf?${qs}`)
+      const data = await res.json()
+      if (!res.ok || data.error) { setPmfStatus('error'); return }
+      setPmfData(data.pmf ?? [])
+      setPmfStatus('loaded')
+    } catch { setPmfStatus('error') }
+  }, [])
+
+  const fetchCanny = useCallback(async (emails: string[]) => {
+    if (!emails.length) return
+    setCannyStatus('loading'); setCannyPosts([])
+    try {
+      const res  = await fetch(`/api/find-user/canny?emails=${encodeURIComponent(emails.join(','))}`)
+      const data = await res.json()
+      if (!res.ok || data.error) { setCannyStatus('error'); return }
+      setCannyPosts(data.posts ?? [])
+      setCannyStatus('loaded')
+    } catch { setCannyStatus('error') }
+  }, [])
+
+  const doSearch = useCallback(async (type: SearchType, value: string) => {
+    if (!value.trim()) return
+    setLoading(true); setError(null); setResult(null)
+    setPmfStatus('idle'); setPmfData([])
+    setCannyStatus('idle'); setCannyPosts([])
+    try {
+      const res  = await fetch('/api/find-user/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, value: value.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setError(data.error ?? `Error ${res.status}`)
+      } else {
+        setResult(data)
+        // Fire async loads
+        const allMailboxes  = (data.bundles ?? []).flatMap((b: BundleData) => b.mailboxes)
+        const allAccountIds = allMailboxes.map((m: Row) => Number(m.account_id)).filter(Boolean)
+        const allEmails     = allMailboxes.map((m: Row) => m.email).filter(Boolean) as string[]
+        fetchPmf(allAccountIds, data.customerId)
+        fetchCanny(allEmails)
+      }
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [fetchPmf, fetchCanny])
+
+  const search = useCallback(() => doSearch(searchType, searchValue), [doSearch, searchType, searchValue])
+
+  // Auto-search from URL params
+  useEffect(() => {
+    const bundleId   = params.get('bundle_id')
+    const customerId = params.get('customer_id')
+    const accountId  = params.get('account_id')
+    const domain     = params.get('domain')
+    if (bundleId)   { setSearchType('bundle_id');   setSearchValue(bundleId);   doSearch('bundle_id',   bundleId)   }
+    else if (customerId) { setSearchType('customer_id'); setSearchValue(customerId); doSearch('customer_id', customerId) }
+    else if (accountId)  { setSearchType('account_id');  setSearchValue(accountId);  doSearch('account_id',  accountId)  }
+    else if (domain)     { setSearchType('domain');       setSearchValue(domain);      doSearch('domain',       domain)      }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const selStyle: React.CSSProperties = {
+    background: C.panel, color: C.textHi, border: `1px solid ${C.border}`,
+    borderRadius: 6, padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', outline: 'none',
+  }
+
+  const placeholder = SEARCH_TYPES.find(t => t.value === searchType)?.placeholder ?? ''
+
+  return (
+    <div style={{ minHeight: '100vh', background: C.bg, fontFamily: "'Nunito', system-ui, sans-serif", fontSize: 15, color: C.text }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px' }}>
+
+        {/* Header */}
+        <div style={{ padding: '28px 0 20px', borderBottom: `1px solid ${C.border}`, marginBottom: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <div>
+              <a href="/" style={{ color: C.sub, fontSize: 12, textDecoration: 'none', letterSpacing: '0.05em', textTransform: 'uppercase' }}>← Neo Analytics</a>
+              <div style={{ color: C.textHi, fontWeight: 800, fontSize: 22, marginTop: 8 }}>Neo customer lookup</div>
+              <div style={{ color: C.sub, fontSize: 13, marginTop: 3 }}>Look up any bundle, order, or mailbox for pre-interview research</div>
+            </div>
+            <span style={{ color: C.sub, fontSize: 12, fontWeight: 600, marginTop: 4, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 4, padding: '3px 8px' }}>{VERSION}</span>
+          </div>
+        </div>
+
+        {/* Search bar */}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 28 }}>
+          <select value={searchType} onChange={e => setSearchType(e.target.value as SearchType)} style={{ ...selStyle, minWidth: 140 }}>
+            {SEARCH_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+          <input
+            value={searchValue}
+            onChange={e => setSearchValue(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && search()}
+            placeholder={placeholder}
+            style={{ ...selStyle, flex: 1, minWidth: 260 }}
+          />
+          <button
+            onClick={search}
+            disabled={loading || !searchValue.trim()}
+            style={{ background: loading ? C.border : C.cyan, color: loading ? C.sub : '#0e1117', border: 'none', borderRadius: 6, padding: '10px 24px', fontWeight: 700, fontSize: 14, cursor: loading ? 'default' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+          >
+            {loading ? 'Searching…' : 'Search'}
+          </button>
+        </div>
+
+        {/* Loading */}
+        {loading && (
+          <div style={{ color: C.sub, textAlign: 'center', padding: '60px 0', fontSize: 15 }}>
+            <div style={{ marginBottom: 8 }}>Querying Athena…</div>
+            <div style={{ color: C.border, fontSize: 13 }}>This may take 30–60 seconds</div>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div style={{ background: C.red + '18', border: `1px solid ${C.red}44`, borderRadius: 8, padding: '14px 18px', color: C.pink, marginBottom: 16 }}>
+            {error}
+          </div>
+        )}
+
+        {/* Results */}
+        {result && !loading && (
+          <>
+            {/* Customer header — always shown */}
+            <CustomerHeader
+              customer={result.customer}
+              customerId={result.customerId}
+              allBundleStatus={result.allBundleStatus}
+              bundleCount={result.bundles.length}
+            />
+
+            {/* Bundle cards */}
+            {result.bundles.length === 0 && (
+              <div style={{ color: C.sub, fontSize: 14 }}>No bundle data found.</div>
+            )}
+            {result.bundles.map((bundleData) => (
+              <BundleCard
+                key={bundleData.bundle.bundle_id}
+                data={bundleData}
+                activityMap={result.activityMap}
+                pmfData={pmfStatus === 'loaded' ? pmfData : []}
+                cannyPosts={cannyPosts}
+                cannyStatus={cannyStatus}
+              />
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}

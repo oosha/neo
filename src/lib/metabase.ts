@@ -1,6 +1,40 @@
 const METABASE_URL = process.env.METABASE_URL || ''
 const METABASE_API_KEY = process.env.METABASE_API_KEY || ''
 
+// ── Raw SQL via Metabase /api/dataset ─────────────────────────────────────────
+
+function metabaseResultToRows(
+  json: { data?: { cols?: Array<{ name: string }>; rows?: unknown[][] }; error?: string }
+): Record<string, unknown>[] {
+  if (json.error) throw new Error(`Metabase query error: ${json.error}`)
+  const cols = json?.data?.cols?.map((c) => c.name) ?? []
+  const rows = json?.data?.rows ?? []
+  return rows.map((row) => {
+    const obj: Record<string, unknown> = {}
+    cols.forEach((col, i) => { obj[col] = (row as unknown[])[i] })
+    return obj
+  })
+}
+
+export async function runQuery(
+  databaseId: number,
+  query: string
+): Promise<Record<string, unknown>[]> {
+  const res = await fetch(`${METABASE_URL}/api/dataset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': METABASE_API_KEY },
+    body: JSON.stringify({
+      database: databaseId,
+      type: 'native',
+      native: { query, 'template-tags': {} },
+    }),
+  })
+  if (!res.ok) throw new Error(`Metabase query failed: ${res.status} ${await res.text()}`)
+  const json = await res.json()
+  if (json.error) throw new Error(`Metabase query error: ${json.error}`)
+  return metabaseResultToRows(json)
+}
+
 interface MetabaseCardParam {
   id: string
   slug: string
