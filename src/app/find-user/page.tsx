@@ -809,9 +809,9 @@ function NotesSection({ bundleId, initialNote }: { bundleId: number; initialNote
   }
 
   return (
-    <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, padding: '16px 20px', marginTop: 12 }}>
+    <div style={{ background: C.panel, border: `1px solid ${C.borderHi}`, borderRadius: 10, padding: '16px 24px', marginTop: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <span style={{ color: C.textHi, fontWeight: 700, fontSize: 14 }}>Notes</span>
+        <span style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Notes</span>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           {saved && <span style={{ color: C.green, fontSize: 13 }}>✓ Saved</span>}
           {!editing && note && (
@@ -979,9 +979,10 @@ function BundleCard({
         </div>
       )}
 
-      {/* ── Notes ── */}
-      <NotesSection bundleId={Number(bundle.bundle_id)} initialNote={note} />
     </div>{/* end panel */}
+
+    {/* ── Notes — independent section ── */}
+    <NotesSection bundleId={Number(bundle.bundle_id)} initialNote={note} />
 
     {/* ── Mailboxes — separate section ── */}
     {mailboxes.length > 0 && (
