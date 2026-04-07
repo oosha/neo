@@ -1,5 +1,5 @@
 // POST /api/find-user/search
-// Body: { type: 'domain'|'email'|'bundle_id'|'order_id'|'customer_id'|'account_id', value: string }
+// Body: { type: 'domain'|'email'|'bundle_id'|'order_id'|'customer_id'|'customer_email'|'account_id', value: string }
 import { NextResponse } from 'next/server'
 import { runQuery } from '@/lib/metabase'
 import { sql } from '@/lib/db'
@@ -97,6 +97,27 @@ export async function POST(req: Request) {
       if (!rows[0]) return NextResponse.json({ error: `Domain not found: ${value}` }, { status: 404 })
       resolvedBundleIds = [Number(rows[0].bundle_id)]
       customerId = Number(rows[0].customer_id) || null
+
+    } else if (type === 'customer_email') {
+      const rows = await runQuery(DB,
+        `SELECT customer_id FROM flockmail.neo_customer_aggregate_metrics
+         WHERE LOWER(customer_email) = LOWER('${san(value)}') LIMIT 1`)
+      if (!rows[0]) {
+        // Fallback: search bundle table by customer_email
+        const bundleRows = await runQuery(DB,
+          `SELECT customer_id FROM flockmail.neo_bundle_aggregate_metrics
+           WHERE LOWER(customer_email) = LOWER('${san(value)}') LIMIT 1`)
+        if (!bundleRows[0]) return NextResponse.json({ error: `Customer email not found: ${value}` }, { status: 404 })
+        customerId = Number(bundleRows[0].customer_id) || null
+      } else {
+        customerId = Number(rows[0].customer_id) || null
+      }
+      if (!customerId) return NextResponse.json({ error: `Customer email not found: ${value}` }, { status: 404 })
+      const bundleIdRows = await runQuery(DB,
+        `SELECT bundle_id FROM flockmail.neo_bundle_aggregate_metrics
+         WHERE customer_id = ${customerId} ORDER BY created_at DESC`)
+      resolvedBundleIds = bundleIdRows.map(r => Number(r.bundle_id)).filter(Boolean)
+      if (!resolvedBundleIds.length) return NextResponse.json({ error: `No bundles found for customer: ${value}` }, { status: 404 })
 
     } else if (type === 'email') {
       // mailbox → mail order → bundle

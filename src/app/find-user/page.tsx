@@ -1033,16 +1033,25 @@ function BundleCard({
 
 // ── Search types ──────────────────────────────────────────────────────────────
 
-type SearchType = 'domain' | 'email' | 'bundle_id' | 'order_id' | 'customer_id' | 'account_id'
+type SearchType = 'customer' | 'mailbox' | 'bundle' | 'order' | 'domain'
 
 const SEARCH_TYPES: { value: SearchType; label: string; placeholder: string }[] = [
-  { value: 'domain',      label: 'Domain',      placeholder: 'mybiz.co.site' },
-  { value: 'email',       label: 'Email',       placeholder: 'user@mybiz.co.site' },
-  { value: 'bundle_id',   label: 'Bundle ID',   placeholder: '123456' },
-  { value: 'order_id',    label: 'Order ID',    placeholder: '789012' },
-  { value: 'customer_id', label: 'Customer ID', placeholder: '456789' },
-  { value: 'account_id',  label: 'Account ID',  placeholder: '987654' },
+  { value: 'customer', label: 'Customer', placeholder: 'Enter customer email or ID' },
+  { value: 'mailbox',  label: 'Mailbox',  placeholder: 'Enter mailbox email or account ID' },
+  { value: 'bundle',   label: 'Bundle',   placeholder: 'Enter bundle ID' },
+  { value: 'order',    label: 'Order',    placeholder: 'Enter order ID' },
+  { value: 'domain',   label: 'Domain',   placeholder: 'Enter domain name' },
 ]
+
+// Resolve UI search type + value → API type that the route understands
+function resolveApiType(type: SearchType, value: string): string {
+  const v = value.trim()
+  if (type === 'customer') return v.includes('@') ? 'customer_email' : 'customer_id'
+  if (type === 'mailbox')  return v.includes('@') ? 'email'          : 'account_id'
+  if (type === 'bundle')   return 'bundle_id'
+  if (type === 'order')    return 'order_id'
+  return 'domain'
+}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -1100,10 +1109,11 @@ function FindUser() {
     setPmfStatus('idle'); setPmfData([])
     setCannyStatus('idle'); setCannyPosts([])
     try {
+      const apiType = resolveApiType(type, value)
       const res  = await fetch('/api/find-user/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, value: value.trim() }),
+        body: JSON.stringify({ type: apiType, value: value.trim() }),
       })
       const data = await res.json()
       if (!res.ok || data.error) {
@@ -1132,10 +1142,14 @@ function FindUser() {
     const customerId = params.get('customer_id')
     const accountId  = params.get('account_id')
     const domain     = params.get('domain')
-    if (bundleId)   { setSearchType('bundle_id');   setSearchValue(bundleId);   doSearch('bundle_id',   bundleId)   }
-    else if (customerId) { setSearchType('customer_id'); setSearchValue(customerId); doSearch('customer_id', customerId) }
-    else if (accountId)  { setSearchType('account_id');  setSearchValue(accountId);  doSearch('account_id',  accountId)  }
-    else if (domain)     { setSearchType('domain');       setSearchValue(domain);      doSearch('domain',       domain)      }
+    const email      = params.get('email')
+    const orderId    = params.get('order_id')
+    if (bundleId)        { setSearchType('bundle');   setSearchValue(bundleId);   doSearch('bundle',   bundleId)   }
+    else if (orderId)    { setSearchType('order');    setSearchValue(orderId);    doSearch('order',    orderId)    }
+    else if (customerId) { setSearchType('customer'); setSearchValue(customerId); doSearch('customer', customerId) }
+    else if (accountId)  { setSearchType('mailbox');  setSearchValue(accountId);  doSearch('mailbox',  accountId)  }
+    else if (email)      { setSearchType('mailbox');  setSearchValue(email);      doSearch('mailbox',  email)      }
+    else if (domain)     { setSearchType('domain');   setSearchValue(domain);     doSearch('domain',   domain)     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1156,7 +1170,7 @@ function FindUser() {
             <div>
               <a href="/" style={{ color: C.sub, fontSize: 12, textDecoration: 'none', letterSpacing: '0.05em', textTransform: 'uppercase' }}>← Neo Analytics</a>
               <div style={{ color: C.textHi, fontWeight: 800, fontSize: 22, marginTop: 8 }}>Neo customer lookup</div>
-              <div style={{ color: C.sub, fontSize: 13, marginTop: 3 }}>Look up any bundle, order, or mailbox for pre-interview research</div>
+              <div style={{ color: C.sub, fontSize: 13, marginTop: 3 }}>Look up any Neo customer, bundle, order, or mailbox for pre-interview research</div>
             </div>
             <span style={{ color: C.sub, fontSize: 12, fontWeight: 600, marginTop: 4, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 4, padding: '3px 8px' }}>{VERSION}</span>
           </div>
