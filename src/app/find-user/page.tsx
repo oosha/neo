@@ -120,18 +120,23 @@ interface BundleData {
   note:        string
 }
 
-interface FeatureEntry { feature: string; total_usage: number; last_seen: string }
-interface WeeklyEntry  { week: string; sent: number; read: number; received: number }
+interface FeatureEntry { feature: string; action: string; category: string; device: string; total_usage: number; last_seen: string }
+interface WeeklyEntry  { week: string; sent: number; read: number; received: number; calendar: number; search: number; organize: number; nonTitanSent: number; mobileSent: number }
+interface AccountInfo  { forwardToCount: number | null; emailAliasCount: number | null }
+interface ClientInfo   { hasTitan: boolean; hasNonTitan: boolean; majorDevice: string | null; clientForSending: string | null }
 
 interface SearchResult {
-  customer:        Row | null
-  customerId:      number | null
-  bundles:         BundleData[]
-  allBundleStatus: Array<{ status: unknown; mailStatus: unknown; siteStatus: unknown }>
-  activityMap:     Record<number, { sent: number; read: number; received: number }>
-  featureMap:      Record<number, FeatureEntry[]>
-  weeklyMap:       Record<number, WeeklyEntry[]>
-  error?:          string
+  customer:             Row | null
+  customerId:           number | null
+  bundles:              BundleData[]
+  allBundleStatus:      Array<{ status: unknown; mailStatus: unknown; siteStatus: unknown }>
+  activityMap:          Record<number, { sent: number; read: number; received: number }>
+  featureMap:           Record<number, FeatureEntry[]>
+  weeklyMap:            Record<number, WeeklyEntry[]>
+  accountInfoMap:       Record<number, AccountInfo>
+  topNonTitanClientMap: Record<number, string>
+  clientInfoMap:        Record<number, ClientInfo>
+  error?:               string
 }
 
 interface PmfEntry {
@@ -459,20 +464,67 @@ function CannyPostRow({ post }: { post: CannyPost }) {
   )
 }
 
+// ── Feature usage section (categorised) ──────────────────────────────────────
+
+function FeatureUsageSection({ features }: { features: FeatureEntry[] }) {
+  const catOrder = ['Regular Use', 'Ultra Features', 'Core Email Actions', 'Setup Actions']
+  const grouped: Record<string, FeatureEntry[]> = {}
+  for (const f of features) {
+    const cat = f.category || 'Other'
+    if (!grouped[cat]) grouped[cat] = []
+    grouped[cat].push(f)
+  }
+  const cats = [...catOrder.filter(c => grouped[c]), ...Object.keys(grouped).filter(c => !catOrder.includes(c) && grouped[c])]
+  if (cats.length === 0) return <div style={{ color: C.sub, fontSize: 13 }}>No feature usage data.</div>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {cats.map(cat => (
+        <div key={cat}>
+          <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{cat}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 8px' }}>
+            {grouped[cat].map((f, i) => (
+              <span key={i} style={{ fontSize: 12, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 8px', color: C.text, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ color: C.textHi }}>{f.feature.replace(/_/g, ' ')}{f.action && f.action !== f.feature ? <span style={{ color: C.sub }}> · {f.action.replace(/_/g, ' ')}</span> : null}</span>
+                <span style={{ color: C.cyan, fontWeight: 600 }}>{Number(f.total_usage).toLocaleString()}</span>
+                {f.device && f.device !== 'unknown' && f.device !== '' && <span style={{ color: C.sub, fontSize: 11 }}>({f.device})</span>}
+                <span style={{ color: C.sub, fontSize: 11 }}>{f.last_seen}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Mailbox card ──────────────────────────────────────────────────────────────
 
 function MailboxCard({
-  mbx, activity, features, weekly, pmfEntries,
+  mbx, activity, features, weekly, pmfEntries, accountInfo, topNonTitanClient, clientInfo,
 }: {
-  mbx:        Row
-  activity:   { sent: number; read: number; received: number } | undefined
-  features:   FeatureEntry[]
-  weekly:     WeeklyEntry[]
-  pmfEntries: PmfEntry[]
+  mbx:               Row
+  activity:          { sent: number; read: number; received: number } | undefined
+  features:          FeatureEntry[]
+  weekly:            WeeklyEntry[]
+  pmfEntries:        PmfEntry[]
+  accountInfo:       AccountInfo | null
+  topNonTitanClient: string | null
+  clientInfo:        ClientInfo | null
 }) {
   const [open, setOpen] = useState(false)
   const displayName = mbx.name || [mbx.first_name, mbx.last_name].filter(Boolean).join(' ') || null
   const ageTxt = fmtAge(mbx.created_at)
+
+  // Client/device info derived server-side from feature usage + sent_client_classification
+  const clientLabel  = clientInfo?.clientForSending ?? null
+  const allDevices   = new Set(features.map(f => String(f.device ?? '').toLowerCase()))
+  const hasWeb       = allDevices.has('web')
+  const hasIos       = allDevices.has('ios')
+  const hasAndroid   = allDevices.has('android')
+  const hasNonTitan  = clientInfo?.hasNonTitan ?? false
+  const majorDevice  = clientInfo?.majorDevice ?? null
+
+  const n = (v: unknown) => v != null ? Number(v) : null
 
   return (
     <div style={{ border: `1px solid ${mbx.is_admin ? C.cyan + '44' : C.border}`, borderRadius: 8, marginBottom: 10, overflow: 'hidden' }}>
@@ -491,15 +543,16 @@ function MailboxCard({
           <div style={{ color: C.sub, fontSize: 12, marginTop: 5 }}>
             {ageTxt} old
             {mbx.dom_plan_type && <><span style={{ margin: '0 6px' }}>·</span><span style={{ color: planColor(mbx.dom_plan_type), fontWeight: 600 }}>{cap(mbx.dom_plan_type)}</span></>}
+            {clientLabel && <><span style={{ margin: '0 6px' }}>·</span><span>{clientLabel} client user</span></>}
             <span style={{ margin: '0 6px' }}>·</span>
-            <span>Last 30d: </span>
+            <span>Last 30d email activity: </span>
             {activity != null ? (
               <>
-                <span>📩 <span style={{ color: C.text }}>{activity.received.toLocaleString()}</span></span>
+                <span>📩 <span style={{ color: C.text }}>{activity.received.toLocaleString()}</span> received</span>
                 <span style={{ margin: '0 5px' }}>•</span>
-                <span>📨 <span style={{ color: C.text }}>{activity.read.toLocaleString()}</span></span>
+                <span>📨 <span style={{ color: C.text }}>{activity.read.toLocaleString()}</span> read</span>
                 <span style={{ margin: '0 5px' }}>•</span>
-                <span>📧 <span style={{ color: C.text }}>{activity.sent.toLocaleString()}</span></span>
+                <span>📧 <span style={{ color: C.text }}>{activity.sent.toLocaleString()}</span> sent</span>
               </>
             ) : (
               <span style={{ color: C.border }}>no data</span>
@@ -511,66 +564,96 @@ function MailboxCard({
 
       {open && (
         <div style={{ padding: '14px 18px', background: C.card, borderTop: `1px solid ${C.border}` }}>
+          {/* Basic info grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px 20px', marginBottom: 16 }}>
-            <KV label="Account ID"       value={mbx.account_id} />
-            <KV label="Created"          value={fmtDate(mbx.created_at)} />
-            <KV label="Age"              value={ageTxt} />
-            <KV label="Plan"             value={<UpgradePath init={mbx.dom_init_plan_type} current={mbx.dom_plan_type} />} />
-            <KV label="Neo Offering"     value={cap(mbx.neo_offering)} color={offeringColor(mbx.neo_offering)} />
-            <KV label="Country"          value={mbx.country} />
-            <KV label="Storage used"     value={fmtBytes(mbx.size_used)} />
-            <KV label="Domain status"    value={cap(mbx.dom_status)} color={statusColor(mbx.dom_status)} />
-            <KV label="Active 7d/30d/90d" value={`${mbx.has_sent_read_last_7d ? '✓' : '✗'} · ${mbx.has_sent_read_last_30d ? '✓' : '✗'} · ${mbx.has_sent_read_last_90d ? '✓' : '✗'}`} />
-            {mbx.referral_code && <KV label="Referral code" value={mbx.referral_code} />}
-            {mbx.referred_invitee_count > 0 && <KV label="Referrals" value={`${mbx.referred_invitee_count} sent`} />}
-            {mbx.referral_reward_earned > 0 && <KV label="Reward earned" value={`${mbx.referral_reward_earned}`} />}
-            {mbx.suspend_date && <KV label="Suspended" value={fmtDate(mbx.suspend_date)} color={C.pink} />}
-            {mbx.suspension_reason && <KV label="Suspension reason" value={cap(mbx.suspension_reason)} color={C.pink} />}
+            <KV label="Account ID"         value={mbx.account_id} />
+            <KV label="Created"            value={fmtDate(mbx.created_at)} />
+            <KV label="Plan"               value={<UpgradePath init={mbx.dom_init_plan_type} current={mbx.dom_plan_type} />} />
+            {clientLabel && <KV label="Client for sending" value={clientLabel} />}
+            {majorDevice && <KV label="Titan device (major)" value={majorDevice === 'ios' ? 'iOS' : majorDevice === 'android' ? 'Android' : 'Web'} />}
+            <KV label="Country"            value={mbx.country} />
+            <KV label="Storage used"       value={fmtBytes(mbx.size_used)} />
+            <KV label="Neo Offering"       value={cap(mbx.neo_offering)} color={offeringColor(mbx.neo_offering)} />
+            <KV label="Domain status"      value={cap(mbx.dom_status)} color={statusColor(mbx.dom_status)} />
+            <KV label="External forwards"  value={n(accountInfo?.forwardToCount)  ?? '—'} />
+            <KV label="Email aliases"      value={n(accountInfo?.emailAliasCount) ?? '—'} />
+            <KV label="Sent or read in"    value={
+              <span style={{ display: 'flex', gap: 10 }}>
+                {([['W1', mbx.has_sent_read_last_7d], ['W4', mbx.has_sent_read_last_30d], ['W12', mbx.has_sent_read_last_90d]] as [string, unknown][]).map(([lbl, val]) => (
+                  <span key={lbl}>
+                    <span style={{ color: C.sub }}>{lbl} </span>
+                    <span style={{ color: val ? C.green : C.pink, fontWeight: 700 }}>{val ? '✓' : '✗'}</span>
+                  </span>
+                ))}
+              </span>
+            } />
+            {mbx.referral_code             && <KV label="Referral code"       value={mbx.referral_code} />}
+            {mbx.referred_invitee_count > 0 && <KV label="Referrals"          value={`${mbx.referred_invitee_count} sent`} />}
+            {mbx.referral_reward_earned > 0 && <KV label="Reward earned"      value={`${mbx.referral_reward_earned}`} />}
+            {mbx.suspend_date              && <KV label="Suspended"           value={fmtDate(mbx.suspend_date)} color={C.pink} />}
+            {mbx.suspension_reason         && <KV label="Suspension reason"   value={cap(mbx.suspension_reason)} color={C.pink} />}
           </div>
 
+          {/* Clients used */}
+          <div style={{ marginBottom: 16 }}>
+            <RowLabel>Clients used</RowLabel>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 6 }}>
+              {[
+                { label: 'Titan Webmail',      active: hasWeb },
+                { label: 'Titan Mobile — iOS', active: hasIos },
+                { label: 'Titan Mobile — Android', active: hasAndroid },
+                { label: `Non-Titan${topNonTitanClient ? ` (${topNonTitanClient.slice(0, 30)})` : ''}`, active: hasNonTitan },
+              ].map(({ label, active }) => (
+                <span key={label} style={{ fontSize: 13, color: active ? C.textHi : C.sub }}>
+                  <span style={{ color: active ? C.green : C.pink, fontWeight: 700, marginRight: 4 }}>{active ? '✓' : '✗'}</span>
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Weekly activity table */}
           {weekly.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <RowLabel>Email activity — weekly, last 90d</RowLabel>
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
                   <thead>
                     <tr style={{ background: C.panel }}>
-                      {(['Week', '📧 Sent', '📨 Read', '📩 Received'] as const).map((h, i) => (
+                      {(['Week starting', '📧 Sent', '📨 Read', '📩 Received', '📅 Calendar', '🔍 Search', '🗂 Organize/Triage', 'Non-Titan sent', 'Titan Mobile sent'] as const).map((h, i) => (
                         <th key={h} style={{ color: C.sub, fontWeight: 600, textAlign: i === 0 ? 'left' : 'right', padding: '5px 10px', borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {weekly.map((w, i) => (
-                      <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : '#131f30' }}>
-                        <td style={{ color: C.sub, padding: '4px 10px', whiteSpace: 'nowrap' }}>{w.week}</td>
-                        <td style={{ color: C.text, textAlign: 'right', padding: '4px 10px' }}>{w.sent > 0 ? w.sent.toLocaleString() : <span style={{ color: C.sub }}>—</span>}</td>
-                        <td style={{ color: C.text, textAlign: 'right', padding: '4px 10px' }}>{w.read > 0 ? w.read.toLocaleString() : <span style={{ color: C.sub }}>—</span>}</td>
-                        <td style={{ color: C.text, textAlign: 'right', padding: '4px 10px' }}>{w.received > 0 ? w.received.toLocaleString() : <span style={{ color: C.sub }}>—</span>}</td>
-                      </tr>
-                    ))}
+                    {weekly.map((w, i) => {
+                      const cell = (v: number) => v > 0 ? <span style={{ color: C.text }}>{v.toLocaleString()}</span> : <span style={{ color: C.sub }}>—</span>
+                      return (
+                        <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : '#131f30' }}>
+                          <td style={{ color: C.sub, padding: '4px 10px', whiteSpace: 'nowrap' }}>{w.week}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 10px' }}>{cell(w.sent)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 10px' }}>{cell(w.read)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 10px' }}>{cell(w.received)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 10px' }}>{cell(w.calendar)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 10px' }}>{cell(w.search)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 10px' }}>{cell(w.organize)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 10px' }}>{cell(w.nonTitanSent)}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 10px' }}>{cell(w.mobileSent)}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
 
+          {/* Feature usage */}
           {features.length > 0 && (
-            <div style={{ marginTop: 4, marginBottom: pmfEntries.length > 0 ? 12 : 0 }}>
-              <RowLabel>Feature usage — last 90d ({features.length} features)</RowLabel>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 10px', marginTop: 6 }}>
-                {features.map(f => (
-                  <span key={f.feature} style={{
-                    fontSize: 12, background: C.card, border: `1px solid ${C.border}`,
-                    borderRadius: 4, padding: '3px 8px', color: C.text,
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                  }}>
-                    <span style={{ color: C.textHi, fontWeight: 600 }}>{f.feature.replace(/_/g, ' ')}</span>
-                    <span style={{ color: C.cyan }}>{Number(f.total_usage).toLocaleString()}</span>
-                    <span style={{ color: C.border }}>·</span>
-                    <span style={{ color: C.sub }}>{f.last_seen}</span>
-                  </span>
-                ))}
+            <div style={{ marginBottom: pmfEntries.length > 0 ? 14 : 0 }}>
+              <RowLabel>Feature usage (last 90d)</RowLabel>
+              <div style={{ marginTop: 8 }}>
+                <FeatureUsageSection features={features} />
               </div>
             </div>
           )}
@@ -646,16 +729,19 @@ function NotesSection({ bundleId, initialNote }: { bundleId: number; initialNote
 // ── Bundle card ───────────────────────────────────────────────────────────────
 
 function BundleCard({
-  data, activityMap, featureMap, weeklyMap, pmfData, pmfStatus, cannyPosts, cannyStatus,
+  data, activityMap, featureMap, weeklyMap, accountInfoMap, topNonTitanClientMap, clientInfoMap, pmfData, pmfStatus, cannyPosts, cannyStatus,
 }: {
-  data:        BundleData
-  activityMap: SearchResult['activityMap']
-  featureMap:  SearchResult['featureMap']
-  weeklyMap:   SearchResult['weeklyMap']
-  pmfData:     PmfEntry[]
-  pmfStatus:   'idle' | 'loading' | 'loaded' | 'error'
-  cannyPosts:  CannyPost[]
-  cannyStatus: 'idle' | 'loading' | 'loaded' | 'error'
+  data:                 BundleData
+  activityMap:          SearchResult['activityMap']
+  featureMap:           SearchResult['featureMap']
+  weeklyMap:            SearchResult['weeklyMap']
+  accountInfoMap:       SearchResult['accountInfoMap']
+  topNonTitanClientMap: SearchResult['topNonTitanClientMap']
+  clientInfoMap:        SearchResult['clientInfoMap']
+  pmfData:              PmfEntry[]
+  pmfStatus:            'idle' | 'loading' | 'loaded' | 'error'
+  cannyPosts:           CannyPost[]
+  cannyStatus:          'idle' | 'loading' | 'loaded' | 'error'
 }) {
   const { bundle, mailOrder, siteOrder, domainOrder, mailboxes, note } = data
   const [personaOpen, setPersonaOpen] = useState(false)
@@ -785,6 +871,9 @@ function BundleCard({
               features={featureMap[Number(mbx.account_id)] ?? []}
               weekly={weeklyMap[Number(mbx.account_id)] ?? []}
               pmfEntries={pmfByAcct[Number(mbx.account_id)] ?? []}
+              accountInfo={accountInfoMap?.[Number(mbx.account_id)] ?? null}
+              topNonTitanClient={topNonTitanClientMap?.[Number(mbx.account_id)] ?? null}
+              clientInfo={clientInfoMap?.[Number(mbx.account_id)] ?? null}
             />
           ))}
         </div>
@@ -1025,6 +1114,9 @@ function FindUser() {
                 activityMap={result.activityMap}
                 featureMap={result.featureMap ?? {}}
                 weeklyMap={result.weeklyMap ?? {}}
+                accountInfoMap={result.accountInfoMap ?? {}}
+                topNonTitanClientMap={result.topNonTitanClientMap ?? {}}
+                clientInfoMap={result.clientInfoMap ?? {}}
                 pmfData={pmfStatus === 'loaded' ? pmfData : []}
                 pmfStatus={pmfStatus}
                 cannyPosts={cannyPosts}

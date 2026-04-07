@@ -212,16 +212,46 @@ export async function POST(req: Request) {
         : Promise.resolve([]),
     ])
 
-    // ── Step 5: Fetch 30d activity + weekly breakdown + feature usage (parallel) ─
+    // ── Step 5: Fetch activity, features, weekly + client/account data ────────
 
     const accountIds = mailboxRows.map(r => Number(r.account_id)).filter(Boolean)
-    let activityMap: Record<number, { sent: number; read: number; received: number }> = {}
-    let featureMap:  Record<number, Array<{ feature: string; total_usage: number; last_seen: string }>> = {}
-    let weeklyMap:   Record<number, Array<{ week: string; sent: number; read: number; received: number }>> = {}
+
+    type WeekRow = { week: string; sent: number; read: number; received: number; calendar: number; search: number; organize: number; nonTitanSent: number; mobileSent: number }
+    type ClientInfo = { hasTitan: boolean; hasNonTitan: boolean; majorDevice: string | null; clientForSending: string | null }
+    let activityMap:          Record<number, { sent: number; read: number; received: number }> = {}
+    let featureMap:           Record<number, Array<{ feature: string; action: string; category: string; device: string; total_usage: number; last_seen: string }>> = {}
+    let weeklyMap:            Record<number, WeekRow[]> = {}
+    let accountInfoMap:       Record<number, { forwardToCount: number | null; emailAliasCount: number | null }> = {}
+    let topNonTitanClientMap: Record<number, string> = {}
+    let clientInfoMap:        Record<number, ClientInfo> = {}
 
     if (accountIds.length) {
       const idsStr = accountIds.join(',')
-      const [activityRows, featureRows, weeklyRows] = await Promise.all([
+
+      // Feature query with try-fallback for broken S3 partitions
+      const FEATURE_QUERY = (dateClause: string) => `
+        SELECT account_id, feature, action, category, device,
+               CAST(SUM(usage) AS BIGINT) AS total_usage,
+               CAST(MAX(dt) AS VARCHAR) AS last_seen
+        FROM flockmail.titan_features_usage_v4
+        WHERE account_id IN (${idsStr})
+          AND ${dateClause}
+        GROUP BY account_id, feature, action, category, device
+        ORDER BY account_id, total_usage DESC
+      `
+      let featureRows: Record<string, unknown>[] = []
+      try {
+        featureRows = await runQuery(DB, FEATURE_QUERY(`dt >= date '2020-01-01'`))
+      } catch {
+        try {
+          featureRows = await runQuery(DB, FEATURE_QUERY(`dt >= date '2025-05-01'`))
+        } catch {
+          featureRows = await runQuery(DB, FEATURE_QUERY(`dt >= current_date - interval '90' day`))
+        }
+      }
+
+      const [activityRows, weeklyRows, weeklyFeatRows, accountInfoRows, clientRows, mobileSentRows] = await Promise.all([
+        // 30d send/read/recv totals
         runQuery(DB, `
           SELECT account_id,
                  CAST(SUM(sent) AS BIGINT) AS sent_30d,
@@ -232,31 +262,68 @@ export async function POST(req: Request) {
             AND dt >= current_date - interval '30' day
           GROUP BY account_id
         `),
-        runQuery(DB, `
-          SELECT account_id,
-                 feature,
-                 CAST(SUM(usage) AS BIGINT) AS total_usage,
-                 CAST(MAX(dt) AS VARCHAR) AS last_seen
-          FROM flockmail.titan_features_usage_v4
-          WHERE account_id IN (${idsStr})
-            AND dt >= current_date - interval '90' day
-          GROUP BY account_id, feature
-          ORDER BY account_id, total_usage DESC
-        `),
+        // 90d weekly send/read/recv
         runQuery(DB, `
           SELECT account_id,
                  CAST(date_trunc('week', dt) AS VARCHAR) AS week,
                  CAST(SUM(sent) AS BIGINT) AS sent,
-                 CAST(SUM(read) AS BIGINT) AS read,
-                 CAST(SUM(recv) AS BIGINT) AS received
+                 CAST(SUM(read)  AS BIGINT) AS read,
+                 CAST(SUM(recv)  AS BIGINT) AS received
           FROM flockmail.mailbox_read_sent_recv_mail
           WHERE account_id IN (${idsStr})
             AND dt >= current_date - interval '90' day
           GROUP BY account_id, date_trunc('week', dt)
           ORDER BY account_id, week DESC
         `),
+        // 90d weekly calendar/search/organize feature counts
+        runQuery(DB, `
+          SELECT account_id,
+                 CAST(date_trunc('week', dt) AS VARCHAR) AS week,
+                 CAST(SUM(CASE WHEN feature IN ('calendar_event_creation','calendar_invite_received') THEN usage ELSE 0 END) AS BIGINT) AS calendar,
+                 CAST(SUM(CASE WHEN feature IN ('advanced_search','search_initiate') THEN usage ELSE 0 END) AS BIGINT) AS search,
+                 CAST(SUM(CASE WHEN feature IN ('mark_as_read','mark_as_unread','move_to_folder','pin','star','unpin','unstar','custom_folder_created','email_labels') THEN usage ELSE 0 END) AS BIGINT) AS organize
+          FROM flockmail.titan_features_usage_v4
+          WHERE account_id IN (${idsStr})
+            AND dt >= current_date - interval '90' day
+            AND feature IN ('calendar_event_creation','calendar_invite_received','advanced_search','search_initiate','mark_as_read','mark_as_unread','move_to_folder','pin','star','unpin','unstar','custom_folder_created','email_labels')
+          GROUP BY account_id, date_trunc('week', dt)
+          ORDER BY account_id, week DESC
+        `),
+        // Forward/alias counts from flock_account
+        runQuery(DB, `
+          SELECT id AS account_id, forward_to_count, email_alias_count
+          FROM flockmail.flock_account
+          WHERE id IN (${idsStr})
+        `),
+        // Non-Titan client weekly sent
+        runQuery(DB, `
+          SELECT account_id,
+                 CAST(date_trunc('week', dt) AS VARCHAR) AS week,
+                 raw_normalized_user_agent,
+                 CAST(SUM(mails_sent) AS BIGINT) AS sent
+          FROM flockmail.sent_client_classification
+          WHERE account_id IN (${idsStr})
+            AND dt >= current_date - interval '90' day
+            AND category != 'Titan Client'
+          GROUP BY account_id, date_trunc('week', dt), raw_normalized_user_agent
+          ORDER BY account_id, week DESC
+        `),
+        // Titan Mobile (ios + android) weekly sent
+        runQuery(DB, `
+          SELECT account_id,
+                 CAST(date_trunc('week', dt) AS VARCHAR) AS week,
+                 CAST(SUM(usage) AS BIGINT) AS sent
+          FROM flockmail.titan_features_usage_v4
+          WHERE account_id IN (${idsStr})
+            AND dt >= current_date - interval '90' day
+            AND feature IN ('new_mail_send','reply_mail_send','forward_mail_send','reply_all_mail_send')
+            AND device IN ('ios','android')
+          GROUP BY account_id, date_trunc('week', dt)
+          ORDER BY account_id, week DESC
+        `),
       ])
 
+      // Process 30d activity
       for (const r of activityRows) {
         activityMap[Number(r.account_id)] = {
           sent:     Number(r.sent_30d     ?? 0),
@@ -264,24 +331,100 @@ export async function POST(req: Request) {
           received: Number(r.received_30d ?? 0),
         }
       }
+
+      // Process features
       for (const r of featureRows) {
         const id = Number(r.account_id)
         if (!featureMap[id]) featureMap[id] = []
         featureMap[id].push({
-          feature:     String(r.feature),
+          feature:     String(r.feature    ?? ''),
+          action:      String(r.action     ?? ''),
+          category:    String(r.category   ?? ''),
+          device:      String(r.device     ?? ''),
           total_usage: Number(r.total_usage ?? 0),
-          last_seen:   String(r.last_seen ?? '').slice(0, 10),
+          last_seen:   String(r.last_seen  ?? '').slice(0, 10),
         })
       }
+
+      // Account info
+      for (const r of accountInfoRows) {
+        accountInfoMap[Number(r.account_id)] = {
+          forwardToCount:  r.forward_to_count  != null ? Number(r.forward_to_count)  : null,
+          emailAliasCount: r.email_alias_count != null ? Number(r.email_alias_count) : null,
+        }
+      }
+
+      // Merge weekly data
+      type WKey = string
+      const wMap: Record<WKey, WeekRow> = {}
+      const emptyWeek = (accountId: number, week: string): WeekRow => ({ week, sent: 0, read: 0, received: 0, calendar: 0, search: 0, organize: 0, nonTitanSent: 0, mobileSent: 0 })
+      const wKey = (accountId: number | unknown, week: unknown) => `${accountId}|${String(week ?? '').slice(0, 10)}`
+
       for (const r of weeklyRows) {
-        const id = Number(r.account_id)
-        if (!weeklyMap[id]) weeklyMap[id] = []
-        weeklyMap[id].push({
-          week:     String(r.week ?? '').slice(0, 10),
-          sent:     Number(r.sent     ?? 0),
-          read:     Number(r.read     ?? 0),
-          received: Number(r.received ?? 0),
-        })
+        const k = wKey(r.account_id, r.week)
+        wMap[k] = { ...emptyWeek(Number(r.account_id), String(r.week ?? '').slice(0, 10)), sent: Number(r.sent ?? 0), read: Number(r.read ?? 0), received: Number(r.received ?? 0) }
+      }
+      for (const r of weeklyFeatRows) {
+        const k = wKey(r.account_id, r.week)
+        if (!wMap[k]) wMap[k] = emptyWeek(Number(r.account_id), String(r.week ?? '').slice(0, 10))
+        wMap[k].calendar = Number(r.calendar ?? 0)
+        wMap[k].search   = Number(r.search   ?? 0)
+        wMap[k].organize = Number(r.organize  ?? 0)
+      }
+      const topClientTotals: Record<number, Record<string, number>> = {}
+      for (const r of clientRows) {
+        const accountId = Number(r.account_id)
+        const k = wKey(accountId, r.week)
+        if (!wMap[k]) wMap[k] = emptyWeek(accountId, String(r.week ?? '').slice(0, 10))
+        wMap[k].nonTitanSent += Number(r.sent ?? 0)
+        if (!topClientTotals[accountId]) topClientTotals[accountId] = {}
+        const client = String(r.raw_normalized_user_agent ?? 'unknown')
+        topClientTotals[accountId][client] = (topClientTotals[accountId][client] ?? 0) + Number(r.sent ?? 0)
+      }
+      for (const r of mobileSentRows) {
+        const k = wKey(r.account_id, r.week)
+        if (!wMap[k]) wMap[k] = emptyWeek(Number(r.account_id), String(r.week ?? '').slice(0, 10))
+        wMap[k].mobileSent += Number(r.sent ?? 0)
+      }
+
+      // Top non-Titan client per account
+      for (const [accountId, clients] of Object.entries(topClientTotals)) {
+        const top = Object.entries(clients).sort((a, b) => b[1] - a[1])[0]
+        if (top) topNonTitanClientMap[Number(accountId)] = top[0]
+      }
+
+      // Index weekly rows by account_id (key format is `${accountId}|${week}`)
+      for (const [k, row] of Object.entries(wMap)) {
+        const accountId = Number(k.split('|')[0])
+        if (!weeklyMap[accountId]) weeklyMap[accountId] = []
+        weeklyMap[accountId].push(row)
+      }
+      // Sort each account's weeks descending
+      for (const id of Object.keys(weeklyMap)) {
+        weeklyMap[Number(id)].sort((a, b) => b.week.localeCompare(a.week))
+      }
+
+      // Derive client/device info from feature usage + non-Titan classification
+      // (Neo mailbox aggregate doesn't have dovecot/client_usage columns)
+      for (const accountId of accountIds) {
+        const entries = featureMap[accountId] ?? []
+        const deviceTotals: Record<string, number> = {}
+        for (const f of entries) {
+          const d = f.device.toLowerCase()
+          if (['web', 'ios', 'android'].includes(d)) {
+            deviceTotals[d] = (deviceTotals[d] ?? 0) + f.total_usage
+          }
+        }
+        const hasTitan    = Object.keys(deviceTotals).length > 0
+        const hasNonTitan = !!topNonTitanClientMap[accountId]
+        const majorDevice = Object.entries(deviceTotals).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+
+        let clientForSending: string | null = null
+        if (hasTitan && hasNonTitan) clientForSending = 'Both (Titan + external)'
+        else if (hasTitan)           clientForSending = 'Titan only'
+        else if (hasNonTitan)        clientForSending = 'Non-Titan only'
+
+        clientInfoMap[accountId] = { hasTitan, hasNonTitan, majorDevice, clientForSending }
       }
     }
 
@@ -327,13 +470,16 @@ export async function POST(req: Request) {
     const allBundleStatus = bundleRows.map(b => ({ status: b.status, mailStatus: b.mail_order_status, siteStatus: b.site_order_status }))
 
     return NextResponse.json({
-      customer:    customerRows[0] ?? null,
+      customer:             customerRows[0] ?? null,
       customerId,
       bundles,
       allBundleStatus,
       activityMap,
       featureMap,
       weeklyMap,
+      accountInfoMap,
+      topNonTitanClientMap,
+      clientInfoMap,
     })
 
   } catch (err) {
