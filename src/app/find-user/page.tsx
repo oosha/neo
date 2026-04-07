@@ -14,6 +14,20 @@ const C = {
   blue: '#4070a8', violet: '#8060a0',
 }
 
+const CAT_LABEL: Record<string, string> = {
+  advanced_one_time_setup: 'One-time setup',
+  advanced_regular_use:    'Regular use (last 90d)',
+  ultra_features:          'Ultra features (last 90d)',
+  email_core_actions:      'Core email actions (last 90d)',
+  rarely_used:             'Setup actions',
+  toggled_features:        'Settings toggled',
+  sending_limit:           'Hit send limits (last 90d)',
+}
+const CAT_ORDER = [
+  'advanced_one_time_setup', 'advanced_regular_use', 'ultra_features',
+  'email_core_actions', 'rarely_used', 'toggled_features', 'sending_limit',
+]
+
 const OFFERING_COLOR: Record<string, string> = {
   'co.site (free)': C.amber,
   'co.site (paid)': C.green,
@@ -56,6 +70,15 @@ function fmtBytes(mb: number | null | undefined): string {
 function cap(s: string | null | undefined): string {
   if (!s) return '—'
   return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ')
+}
+
+function planTier(plan: string | null | undefined): number {
+  const p = (plan ?? '').toLowerCase()
+  if (p.includes('business') || p.includes('ultra')) return 4
+  if (p.includes('growth')   || p.includes('premium')) return 3
+  if (p.includes('standard') || p.includes('pro')) return 2
+  if (p.includes('starter') || p.includes('lite') || p.includes('basic')) return 1
+  return 0
 }
 
 function planColor(plan: string | null | undefined): string {
@@ -222,10 +245,22 @@ function UpgradePath({ init, current, label }: { init: string | null; current: s
 
 // ── Product rows (mail / site / domain) ───────────────────────────────────────
 
+function PlanChanges({ init, current }: { init: string | null; current: string | null }) {
+  if (!init || !current || init.toLowerCase() === current.toLowerCase()) return null
+  const tier = planTier(current) - planTier(init)
+  const up   = tier > 0
+  return (
+    <span style={{ fontSize: 12, color: C.sub }}>
+      · <span style={{ color: planColor(init) }}>{cap(init)}</span>
+      <span style={{ color: up ? C.green : C.pink, margin: '0 4px' }}>{up ? '↑' : '↓'}</span>
+      <span style={{ color: planColor(current) }}>{cap(current)}</span>
+    </span>
+  )
+}
+
 function MailProductRow({ order }: { order: Row }) {
   const [open, setOpen] = useState(false)
   const ageTxt = fmtAge(order.created_at)
-  const upgraded = order.init_plan_type && order.plan_type && order.init_plan_type !== order.plan_type
 
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 8, overflow: 'hidden' }}>
@@ -240,13 +275,7 @@ function MailProductRow({ order }: { order: Row }) {
         <span style={{ color: C.sub, fontSize: 12 }}>
           {fmtDate(order.created_at)} · {ageTxt} old
         </span>
-        {upgraded && (
-          <span style={{ color: C.sub, fontSize: 12 }}>
-            · <span style={{ color: planColor(order.init_plan_type) }}>{cap(order.init_plan_type)}</span>
-            <span style={{ margin: '0 4px' }}>→</span>
-            <span style={{ color: planColor(order.plan_type) }}>{cap(order.plan_type)}</span>
-          </span>
-        )}
+        <PlanChanges init={order.init_plan_type} current={order.plan_type} />
         {order.is_mx_verified ? (
           <span style={{ color: C.green, fontSize: 12 }}>· ✓ MX {fmtDate(order.mx_verified_ts)}</span>
         ) : (
@@ -285,7 +314,6 @@ function MailProductRow({ order }: { order: Row }) {
 function SiteProductRow({ order }: { order: Row }) {
   const [open, setOpen] = useState(false)
   const ageTxt  = fmtAge(order.created_at)
-  const upgraded = order.init_plan_type && order.plan_type && order.init_plan_type !== order.plan_type
 
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 8, overflow: 'hidden' }}>
@@ -301,13 +329,7 @@ function SiteProductRow({ order }: { order: Row }) {
         <span style={{ color: C.sub, fontSize: 12 }}>
           {fmtDate(order.created_at)} · {ageTxt} old
         </span>
-        {upgraded && (
-          <span style={{ color: C.sub, fontSize: 12 }}>
-            · <span style={{ color: planColor(order.init_plan_type) }}>{cap(order.init_plan_type)}</span>
-            <span style={{ margin: '0 4px' }}>→</span>
-            <span style={{ color: planColor(order.plan_type) }}>{cap(order.plan_type)}</span>
-          </span>
-        )}
+        <PlanChanges init={order.init_plan_type} current={order.plan_type} />
         {order.first_site_publish_dt && (
           <span style={{ color: C.green, fontSize: 12 }}>· Published {fmtDate(order.first_site_publish_dt)}</span>
         )}
@@ -464,35 +486,115 @@ function CannyPostRow({ post }: { post: CannyPost }) {
   )
 }
 
-// ── Feature usage section (categorised) ──────────────────────────────────────
+// ── Feature usage section (categorised, matches titanmail) ───────────────────
 
-function FeatureUsageSection({ features }: { features: FeatureEntry[] }) {
-  const catOrder = ['Regular Use', 'Ultra Features', 'Core Email Actions', 'Setup Actions']
+function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntry[]; featureFloor?: string | null }) {
+  if (features.length === 0) return <div style={{ color: C.sub, fontSize: 13 }}>No feature usage data.</div>
+
+  const lifetimeLabel = featureFloor === 'last-90d' ? 'last 90d' : featureFloor ? `Since ${featureFloor.slice(0,7)}` : 'Lifetime'
+  const catLabel: Record<string, string> = {
+    ...CAT_LABEL,
+    advanced_one_time_setup: `One-time setup (${lifetimeLabel})`,
+    rarely_used:             `Setup actions (${lifetimeLabel})`,
+    toggled_features:        `Settings toggled (${lifetimeLabel})`,
+  }
+
+  // ── Summary: 4 key engagement indicators ──────────────────────────────────
+  const featureSet = new Set(features.map(f => f.feature))
+  const calendarTotal = features
+    .filter(f => ['calendar_event_creation', 'calendar_invite_received'].includes(f.feature))
+    .reduce((s, f) => s + f.total_usage, 0)
+
+  const summaryItems = [
+    { label: 'Read receipts',   active: featureSet.has('read_receipts') },
+    { label: 'Email templates', active: featureSet.has('email_templates') },
+    { label: 'Turbo search',    active: featureSet.has('advanced_search') || featureSet.has('turbo_search') },
+    { label: `📅 ${calendarTotal > 0 ? calendarTotal.toLocaleString() + ' calendar events' : 'Calendar'}`, active: calendarTotal > 0 },
+  ]
+
+  // ── Group by category ──────────────────────────────────────────────────────
   const grouped: Record<string, FeatureEntry[]> = {}
   for (const f of features) {
     const cat = f.category || 'Other'
     if (!grouped[cat]) grouped[cat] = []
     grouped[cat].push(f)
   }
-  const cats = [...catOrder.filter(c => grouped[c]), ...Object.keys(grouped).filter(c => !catOrder.includes(c) && grouped[c])]
-  if (cats.length === 0) return <div style={{ color: C.sub, fontSize: 13 }}>No feature usage data.</div>
+  const cats = [
+    ...CAT_ORDER.filter(c => grouped[c]),
+    ...Object.keys(grouped).filter(c => !CAT_ORDER.includes(c) && grouped[c]),
+  ]
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {cats.map(cat => (
-        <div key={cat}>
-          <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{cat}</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 8px' }}>
-            {grouped[cat].map((f, i) => (
-              <span key={i} style={{ fontSize: 12, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 8px', color: C.text, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ color: C.textHi }}>{f.feature.replace(/_/g, ' ')}{f.action && f.action !== f.feature ? <span style={{ color: C.sub }}> · {f.action.replace(/_/g, ' ')}</span> : null}</span>
-                <span style={{ color: C.cyan, fontWeight: 600 }}>{Number(f.total_usage).toLocaleString()}</span>
-                {f.device && f.device !== 'unknown' && f.device !== '' && <span style={{ color: C.sub, fontSize: 11 }}>({f.device})</span>}
-                <span style={{ color: C.sub, fontSize: 11 }}>{f.last_seen}</span>
-              </span>
-            ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Summary chips */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {summaryItems.map(({ label, active }) => (
+          <span key={label} style={{
+            fontSize: 12, background: C.panel, border: `1px solid ${active ? C.cyan + '55' : C.border}`,
+            borderRadius: 4, padding: '3px 10px', color: active ? C.textHi : C.sub,
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+          }}>
+            <span style={{ color: active ? C.green : C.pink, fontWeight: 700 }}>{active ? '✓' : '✗'}</span>
+            {label}
+          </span>
+        ))}
+      </div>
+
+      {/* Category sections */}
+      {cats.map(cat => {
+        const entries = grouped[cat]
+        const label   = catLabel[cat] ?? cat.replace(/_/g, ' ')
+
+        if (cat === 'toggled_features') {
+          // Group by feature, pick most recent action to determine ON/OFF state
+          const byFeature: Record<string, FeatureEntry[]> = {}
+          for (const f of entries) {
+            if (!byFeature[f.feature]) byFeature[f.feature] = []
+            byFeature[f.feature].push(f)
+          }
+          return (
+            <div key={cat}>
+              <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{label}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 8px' }}>
+                {Object.entries(byFeature).map(([feat, rows]) => {
+                  const sorted  = [...rows].sort((a, b) => b.last_seen.localeCompare(a.last_seen))
+                  const current = sorted[0]
+                  const isOn    = current.action?.toLowerCase().includes('enable') || current.action?.toLowerCase() === 'on'
+                  const isOff   = current.action?.toLowerCase().includes('disable') || current.action?.toLowerCase() === 'off'
+                  const state   = isOn ? 'ON' : isOff ? 'OFF' : current.action ?? '?'
+                  return (
+                    <span key={feat} style={{ fontSize: 12, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 8px', color: C.text, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ color: C.textHi }}>{feat.replace(/_/g, ' ')}</span>
+                      <span style={{ color: isOn ? C.green : isOff ? C.pink : C.sub, fontWeight: 700 }}>— {state}</span>
+                      <span style={{ color: C.sub, fontSize: 11 }}>{current.last_seen}</span>
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        }
+
+        return (
+          <div key={cat}>
+            <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{label}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 8px' }}>
+              {entries.map((f, i) => {
+                const dev = String(f.device ?? '').toLowerCase()
+                const showDev = dev && dev !== 'unknown' && dev !== 'null' && dev !== ''
+                return (
+                  <span key={i} style={{ fontSize: 12, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 8px', color: C.text, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ color: C.textHi }}>{f.feature.replace(/_/g, ' ')}</span>
+                    <span style={{ color: C.cyan, fontWeight: 600 }}>{Number(f.total_usage).toLocaleString()}</span>
+                    {showDev && <span style={{ color: C.sub, fontSize: 11 }}>({dev})</span>}
+                    <span style={{ color: C.sub, fontSize: 11 }}>{f.last_seen}</span>
+                  </span>
+                )
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -651,9 +753,9 @@ function MailboxCard({
           {/* Feature usage */}
           {features.length > 0 && (
             <div style={{ marginBottom: pmfEntries.length > 0 ? 14 : 0 }}>
-              <RowLabel>Feature usage (last 90d)</RowLabel>
+              <RowLabel>Feature usage</RowLabel>
               <div style={{ marginTop: 8 }}>
-                <FeatureUsageSection features={features} />
+                <FeatureUsageSection features={features} featureFloor={null} />
               </div>
             </div>
           )}
@@ -765,7 +867,8 @@ function BundleCard({
   }, {})
 
   return (
-    <div id={`bundle-${bundle.bundle_id}`} style={{ background: C.panel, border: `1px solid ${C.borderHi}`, borderRadius: 10, padding: '20px 24px', marginBottom: 20 }}>
+    <div id={`bundle-${bundle.bundle_id}`} style={{ marginBottom: 20 }}>
+    <div style={{ background: C.panel, border: `1px solid ${C.borderHi}`, borderRadius: 10, padding: '20px 24px' }}>
 
       {/* ── Bundle header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -859,25 +962,8 @@ function BundleCard({
         </div>
       )}
 
-      {/* ── Mailboxes ── */}
-      {mailboxes.length > 0 && (
-        <div style={{ marginBottom: 14 }}>
-          <RowLabel>Mailboxes ({mailboxes.length})</RowLabel>
-          {mailboxes.map(mbx => (
-            <MailboxCard
-              key={mbx.account_id}
-              mbx={mbx}
-              activity={activityMap[Number(mbx.account_id)]}
-              features={featureMap[Number(mbx.account_id)] ?? []}
-              weekly={weeklyMap[Number(mbx.account_id)] ?? []}
-              pmfEntries={pmfByAcct[Number(mbx.account_id)] ?? []}
-              accountInfo={accountInfoMap?.[Number(mbx.account_id)] ?? null}
-              topNonTitanClient={topNonTitanClientMap?.[Number(mbx.account_id)] ?? null}
-              clientInfo={clientInfoMap?.[Number(mbx.account_id)] ?? null}
-            />
-          ))}
-        </div>
-      )}
+      {/* ── Notes ── */}
+      <NotesSection bundleId={Number(bundle.bundle_id)} initialNote={note} />
 
       {/* ── PMF ── */}
       {pmfStatus !== 'idle' && (
@@ -918,9 +1004,29 @@ function BundleCard({
           {cannyStatus === 'loaded' && cannyPosts.map(p => <CannyPostRow key={p.id} post={p} />)}
         </div>
       )}
+    </div>{/* end panel */}
 
-      {/* ── Notes ── */}
-      <NotesSection bundleId={Number(bundle.bundle_id)} initialNote={note} />
+    {/* ── Mailboxes — separate section outside the order panel ── */}
+    {mailboxes.length > 0 && (
+      <div style={{ marginTop: 12 }}>
+        <div style={{ color: C.sub, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, paddingLeft: 4 }}>
+          Mailboxes ({mailboxes.length})
+        </div>
+        {mailboxes.map(mbx => (
+          <MailboxCard
+            key={mbx.account_id}
+            mbx={mbx}
+            activity={activityMap[Number(mbx.account_id)]}
+            features={featureMap[Number(mbx.account_id)] ?? []}
+            weekly={weeklyMap[Number(mbx.account_id)] ?? []}
+            pmfEntries={pmfByAcct[Number(mbx.account_id)] ?? []}
+            accountInfo={accountInfoMap?.[Number(mbx.account_id)] ?? null}
+            topNonTitanClient={topNonTitanClientMap?.[Number(mbx.account_id)] ?? null}
+            clientInfo={clientInfoMap?.[Number(mbx.account_id)] ?? null}
+          />
+        ))}
+      </div>
+    )}
     </div>
   )
 }
