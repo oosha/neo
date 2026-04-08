@@ -264,19 +264,32 @@ export async function POST(req: Request) {
 
     const accountIds = mailboxRows.map(r => Number(r.account_id)).filter(Boolean)
 
-    // If all mailboxes are suspended/deleted, use their suspend_date as the time reference
-    // so activity windows are relative to before suspension, not today.
-    const suspendedDates = mailboxRows
-      .filter(r => {
-        const s = (r.status ?? '').toLowerCase()
-        return (s === 'suspended' || s === 'deleted') && r.suspend_date
-      })
-      .map(r => String(r.suspend_date).slice(0, 10))
-    const allSuspended = suspendedDates.length > 0 && suspendedDates.length === mailboxRows.length
-    const anchorDate: string | null = allSuspended
-      ? suspendedDates.reduce((max, d) => (d > max ? d : max))
-      : null
-    const dtRef = anchorDate ? `date '${anchorDate}'` : 'current_date'
+    // Per-mailbox anchor date: suspended/deleted accounts use their suspend_date
+    // so activity windows look back from just before suspension, not from today.
+    const today = new Date().toISOString().slice(0, 10)
+    const anchorByAccount: Record<number, string> = {}
+    for (const r of mailboxRows) {
+      const id = Number(r.account_id)
+      if (!id) continue
+      const s = (r.status ?? '').toLowerCase()
+      anchorByAccount[id] = (s === 'suspended' || s === 'deleted') && r.suspend_date
+        ? String(r.suspend_date).slice(0, 10)
+        : today
+    }
+    // anchorMap returned to UI: only entries that differ from today (suspension anchors)
+    const anchorMap: Record<number, string | null> = {}
+    for (const [id, d] of Object.entries(anchorByAccount)) {
+      anchorMap[Number(id)] = d !== today ? d : null
+    }
+    // Global min anchor for Athena partition pruning
+    const globalMinAnchor = Object.values(anchorByAccount).reduce((min, d) => d < min ? d : min, today)
+    // Athena CTE injected into each time-windowed query
+    const ANCHORS_CTE = (alias: string) => `
+      ${alias}(account_id, anchor_date) AS (
+        SELECT * FROM (VALUES
+          ${Object.entries(anchorByAccount).map(([id, d]) => `(${id}, date '${d}')`).join(', ')}
+        ) AS t(account_id, anchor_date)
+      )`
 
     type WeekRow = { week: string; sent: number; read: number; received: number; calendar: number; search: number; organize: number; nonTitanSent: number; mobileSent: number }
     type ClientInfo = { hasTitan: boolean; hasNonTitan: boolean; majorDevice: string | null; clientForSending: string | null }
@@ -313,75 +326,90 @@ export async function POST(req: Request) {
       }
 
       const [activityRows, weeklyRows, weeklyFeatRows, accountInfoRows, clientRows, mobileSentRows] = await Promise.all([
-        // 30d send/read/recv totals
+        // 30d send/read/recv totals — per-account anchor
         runQuery(DB, `
-          SELECT account_id,
+          WITH ${ANCHORS_CTE('anc')}
+          SELECT m.account_id,
                  CAST(SUM(sent) AS BIGINT) AS sent_30d,
                  CAST(SUM(read) AS BIGINT) AS read_30d,
                  CAST(SUM(recv) AS BIGINT) AS received_30d
-          FROM flockmail.mailbox_read_sent_recv_mail
-          WHERE account_id IN (${idsStr})
-            AND dt >= ${dtRef} - interval '30' day
-          GROUP BY account_id
+          FROM flockmail.mailbox_read_sent_recv_mail m
+          JOIN anc ON anc.account_id = m.account_id
+          WHERE m.dt >= anc.anchor_date - interval '30' day
+            AND m.dt <= anc.anchor_date
+            AND m.dt >= date '${globalMinAnchor}' - interval '30' day
+          GROUP BY m.account_id
         `),
-        // 90d weekly send/read/recv
+        // 90d weekly send/read/recv — per-account anchor
         runQuery(DB, `
-          SELECT account_id,
-                 CAST(date_trunc('week', dt) AS VARCHAR) AS week,
+          WITH ${ANCHORS_CTE('anc')}
+          SELECT m.account_id,
+                 CAST(date_trunc('week', m.dt) AS VARCHAR) AS week,
                  CAST(SUM(sent) AS BIGINT) AS sent,
                  CAST(SUM(read)  AS BIGINT) AS read,
                  CAST(SUM(recv)  AS BIGINT) AS received
-          FROM flockmail.mailbox_read_sent_recv_mail
-          WHERE account_id IN (${idsStr})
-            AND dt >= ${dtRef} - interval '90' day
-          GROUP BY account_id, date_trunc('week', dt)
-          ORDER BY account_id, week DESC
+          FROM flockmail.mailbox_read_sent_recv_mail m
+          JOIN anc ON anc.account_id = m.account_id
+          WHERE m.dt >= anc.anchor_date - interval '90' day
+            AND m.dt <= anc.anchor_date
+            AND m.dt >= date '${globalMinAnchor}' - interval '90' day
+          GROUP BY m.account_id, date_trunc('week', m.dt)
+          ORDER BY m.account_id, week DESC
         `),
-        // 90d weekly calendar/search/organize feature counts
+        // 90d weekly calendar/search/organize — per-account anchor
         runQuery(DB, `
-          SELECT account_id,
-                 CAST(date_trunc('week', dt) AS VARCHAR) AS week,
+          WITH ${ANCHORS_CTE('anc')}
+          SELECT f.account_id,
+                 CAST(date_trunc('week', f.dt) AS VARCHAR) AS week,
                  CAST(SUM(CASE WHEN feature IN ('calendar_event_creation','calendar_invite_received') THEN usage ELSE 0 END) AS BIGINT) AS calendar,
                  CAST(SUM(CASE WHEN feature IN ('advanced_search','search_initiate') THEN usage ELSE 0 END) AS BIGINT) AS search,
                  CAST(SUM(CASE WHEN feature IN ('mark_as_read','mark_as_unread','move_to_folder','pin','star','unpin','unstar','custom_folder_created','email_labels') THEN usage ELSE 0 END) AS BIGINT) AS organize
-          FROM flockmail.titan_features_usage_v4
-          WHERE account_id IN (${idsStr})
-            AND dt >= ${dtRef} - interval '90' day
-            AND feature IN ('calendar_event_creation','calendar_invite_received','advanced_search','search_initiate','mark_as_read','mark_as_unread','move_to_folder','pin','star','unpin','unstar','custom_folder_created','email_labels')
-          GROUP BY account_id, date_trunc('week', dt)
-          ORDER BY account_id, week DESC
+          FROM flockmail.titan_features_usage_v4 f
+          JOIN anc ON anc.account_id = f.account_id
+          WHERE f.dt >= anc.anchor_date - interval '90' day
+            AND f.dt <= anc.anchor_date
+            AND f.dt >= date '${globalMinAnchor}' - interval '90' day
+            AND f.feature IN ('calendar_event_creation','calendar_invite_received','advanced_search','search_initiate','mark_as_read','mark_as_unread','move_to_folder','pin','star','unpin','unstar','custom_folder_created','email_labels')
+          GROUP BY f.account_id, date_trunc('week', f.dt)
+          ORDER BY f.account_id, week DESC
         `),
-        // Forward/alias counts from flock_account
+        // Forward/alias counts from flock_account (no date filter — static data)
         runQuery(DB, `
           SELECT id AS account_id, forward_to_count, email_alias_count
           FROM flockmail.flock_account
           WHERE id IN (${idsStr})
         `),
-        // Non-Titan client weekly sent
+        // Non-Titan client weekly sent — per-account anchor
         runQuery(DB, `
-          SELECT account_id,
-                 CAST(date_trunc('week', dt) AS VARCHAR) AS week,
+          WITH ${ANCHORS_CTE('anc')}
+          SELECT c.account_id,
+                 CAST(date_trunc('week', c.dt) AS VARCHAR) AS week,
                  raw_normalized_user_agent,
                  CAST(SUM(mails_sent) AS BIGINT) AS sent
-          FROM flockmail.sent_client_classification
-          WHERE account_id IN (${idsStr})
-            AND dt >= ${dtRef} - interval '90' day
-            AND category != 'Titan Client'
-          GROUP BY account_id, date_trunc('week', dt), raw_normalized_user_agent
-          ORDER BY account_id, week DESC
+          FROM flockmail.sent_client_classification c
+          JOIN anc ON anc.account_id = c.account_id
+          WHERE c.dt >= anc.anchor_date - interval '90' day
+            AND c.dt <= anc.anchor_date
+            AND c.dt >= date '${globalMinAnchor}' - interval '90' day
+            AND c.category != 'Titan Client'
+          GROUP BY c.account_id, date_trunc('week', c.dt), raw_normalized_user_agent
+          ORDER BY c.account_id, week DESC
         `),
-        // Titan Mobile (ios + android) weekly sent
+        // Titan Mobile (ios + android) weekly sent — per-account anchor
         runQuery(DB, `
-          SELECT account_id,
-                 CAST(date_trunc('week', dt) AS VARCHAR) AS week,
+          WITH ${ANCHORS_CTE('anc')}
+          SELECT f.account_id,
+                 CAST(date_trunc('week', f.dt) AS VARCHAR) AS week,
                  CAST(SUM(usage) AS BIGINT) AS sent
-          FROM flockmail.titan_features_usage_v4
-          WHERE account_id IN (${idsStr})
-            AND dt >= ${dtRef} - interval '90' day
-            AND feature IN ('new_mail_send','reply_mail_send','forward_mail_send','reply_all_mail_send')
-            AND device IN ('ios','android')
-          GROUP BY account_id, date_trunc('week', dt)
-          ORDER BY account_id, week DESC
+          FROM flockmail.titan_features_usage_v4 f
+          JOIN anc ON anc.account_id = f.account_id
+          WHERE f.dt >= anc.anchor_date - interval '90' day
+            AND f.dt <= anc.anchor_date
+            AND f.dt >= date '${globalMinAnchor}' - interval '90' day
+            AND f.feature IN ('new_mail_send','reply_mail_send','forward_mail_send','reply_all_mail_send')
+            AND f.device IN ('ios','android')
+          GROUP BY f.account_id, date_trunc('week', f.dt)
+          ORDER BY f.account_id, week DESC
         `),
       ])
 
@@ -555,7 +583,7 @@ export async function POST(req: Request) {
       topNonTitanClientMap,
       clientInfoMap,
       planTxnMap,
-      anchorDate,
+      anchorMap,
     })
 
   } catch (err) {

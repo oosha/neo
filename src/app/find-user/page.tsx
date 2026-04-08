@@ -194,7 +194,7 @@ interface SearchResult {
   topNonTitanClientMap: Record<number, string>
   clientInfoMap:        Record<number, ClientInfo>
   planTxnMap:           Record<number, { from: string; to: string; date: string }[]>
-  anchorDate:           string | null
+  anchorMap:            Record<number, string | null>
   error?:               string
 }
 
@@ -919,7 +919,7 @@ function NotesSection({ bundleId, initialNote }: { bundleId: number; initialNote
 // ── Bundle card ───────────────────────────────────────────────────────────────
 
 function BundleCard({
-  data, activityMap, featureMap, weeklyMap, accountInfoMap, topNonTitanClientMap, clientInfoMap, pmfData, pmfStatus, cannyPosts, cannyStatus, planTxnMap, anchorDate,
+  data, activityMap, featureMap, weeklyMap, accountInfoMap, topNonTitanClientMap, clientInfoMap, pmfData, pmfStatus, cannyPosts, cannyStatus, planTxnMap, anchorMap,
 }: {
   data:                 BundleData
   activityMap:          SearchResult['activityMap']
@@ -933,7 +933,7 @@ function BundleCard({
   cannyPosts:           CannyPost[]
   cannyStatus:          'idle' | 'loading' | 'loaded' | 'error'
   planTxnMap:           SearchResult['planTxnMap']
-  anchorDate:           string | null
+  anchorMap:            SearchResult['anchorMap']
 }) {
   const { bundle, mailOrder, siteOrder, domainOrder, mailboxes, note } = data
   const mailPlanTxns = mailOrder ? (planTxnMap[Number(mailOrder.order_id)] ?? []) : []
@@ -941,7 +941,7 @@ function BundleCard({
   const [utmOpen, setUtmOpen]         = useState(false)
 
   const hasPersona = bundle.role_in_business || bundle.signup_reason || bundle.employee_count || bundle.business_industry
-  const hasUtm     = bundle.utm_source || bundle.utm_medium || bundle.utm_campaign || bundle.utm_term
+  const hasUtm     = true // always show — product source always present (defaults to Mail)
 
   const bundleStatusColor = statusColor(bundle.status)
   const ofColor           = offeringColor(bundle.neo_offering)
@@ -1019,6 +1019,7 @@ function BundleCard({
           {utmOpen && (
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingLeft: 4 }}>
               {[
+                ['Product source', bundle.product_source || 'Mail'],
                 ['Source',    bundle.utm_source],
                 ['Medium',    bundle.utm_medium],
                 ['Campaign',  bundle.utm_campaign],
@@ -1078,7 +1079,7 @@ function BundleCard({
             accountInfo={accountInfoMap?.[Number(mbx.account_id)] ?? null}
             topNonTitanClient={topNonTitanClientMap?.[Number(mbx.account_id)] ?? null}
             clientInfo={clientInfoMap?.[Number(mbx.account_id)] ?? null}
-            anchorDate={anchorDate}
+            anchorDate={anchorMap?.[Number(mbx.account_id)] ?? null}
           />
         ))}
       </div>
@@ -1347,7 +1348,7 @@ function FindUser() {
                 cannyPosts={cannyPosts}
                 cannyStatus={cannyStatus}
                 planTxnMap={result.planTxnMap ?? {}}
-                anchorDate={result.anchorDate ?? null}
+                anchorMap={result.anchorMap ?? {}}
               />
             ))}
           </>
