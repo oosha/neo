@@ -145,7 +145,7 @@ export async function GET() {
               score         = COALESCE(EXCLUDED.score, neo_pmf_feedback.score),
               feedback_text = COALESCE(EXCLUDED.feedback_text, neo_pmf_feedback.feedback_text)
           `
-          if (product === 'mail') results.mail++ else results.site++
+          if (product === 'mail') { results.mail++ } else { results.site++ }
         } catch (e) {
           results.errors.push(`${r.id}: ${String(e)}`)
           results.skipped++
