@@ -874,7 +874,7 @@ function BundleCard({
 
   // PMF: split mail (per account_id) vs site (all)
   const accountIds  = new Set(mailboxes.map(m => Number(m.account_id)))
-  const mailPmf     = pmfData.filter(e => e.product === 'mail' && e.account_id != null && accountIds.has(e.account_id))
+  const mailPmf     = pmfData.filter(e => e.product === 'mail' && (e.account_id == null || accountIds.has(Number(e.account_id))))
   const sitePmf     = pmfData.filter(e => e.product === 'site')
   const pmfByAcct   = mailPmf.reduce<Record<number, PmfEntry[]>>((acc, e) => {
     const id = Number(e.account_id)
