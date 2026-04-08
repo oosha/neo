@@ -299,6 +299,7 @@ export async function POST(req: Request) {
     let accountInfoMap:       Record<number, { forwardToCount: number | null; emailAliasCount: number | null }> = {}
     let topNonTitanClientMap: Record<number, string> = {}
     let clientInfoMap:        Record<number, ClientInfo> = {}
+    let featureFloor:         string | null = 'last-90d'
 
     if (accountIds.length) {
       const idsStr = accountIds.join(',')
@@ -328,7 +329,6 @@ export async function POST(req: Request) {
         ORDER BY account_id, total_usage DESC
       `
       let featureRows: Record<string, unknown>[] = []
-      let featureFloor: string | null = 'last-90d'   // default: 90d
       try {
         featureRows = await runQuery(DB, FEATURE_QUERY_90D)
       } catch {
