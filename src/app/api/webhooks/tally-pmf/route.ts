@@ -32,9 +32,12 @@ function normaliseScore(raw: string): string {
 // Verify Tally HMAC-SHA256 signature
 function verifySignature(body: string, signature: string | null): boolean {
   const secret = process.env.TALLY_SIGNING_SECRET
-  if (!secret || !signature) return !secret  // if no secret configured, skip verification
+  if (!secret) return true  // no secret configured — skip verification
+  if (!signature) return false
+  // Tally may send signature with or without 'sha256=' prefix
+  const raw = signature.startsWith('sha256=') ? signature.slice(7) : signature
   const expected = createHmac('sha256', secret).update(body).digest('hex')
-  return expected === signature
+  return expected === raw
 }
 
 interface TallyField {
