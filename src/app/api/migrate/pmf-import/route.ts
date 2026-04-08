@@ -126,7 +126,12 @@ export async function GET() {
   try {
     const results = { mail: 0, site: 0, skipped: 0, errors: [] as string[] }
 
-    for (const [formId, product] of [[FORM_ID_MAIL, 'mail'], [FORM_ID_SITE, 'site']] as const) {
+    const forms: Array<{ formId: string; product: string }> = [
+      { formId: FORM_ID_MAIL, product: 'mail' },
+      { formId: FORM_ID_SITE, product: 'site' },
+    ]
+
+    for (const { formId, product } of forms) {
       const responses = await fetchAllResponses(formId)
 
       for (const r of responses) {
