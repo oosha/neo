@@ -168,6 +168,7 @@ interface SearchResult {
   accountInfoMap:       Record<number, AccountInfo>
   topNonTitanClientMap: Record<number, string>
   clientInfoMap:        Record<number, ClientInfo>
+  planTxnMap:           Record<number, { from: string; to: string; date: string }[]>
   error?:               string
 }
 
@@ -237,51 +238,26 @@ function CustomerHeader({
 
 // ── Plan changes (full timeline) ─────────────────────────────────────────────
 
-function MailPlanChanges({ order }: { order: Row }) {
-  const events: { date: string | null; from: string; to: string; dir: 'up' | 'down' }[] = []
-
-  // Upgrades — pro=Starter, premium=Standard, ultra=Max
-  if (order.first_pro_ts && order.plan_before_first_pro) {
-    events.push({ date: fmtDate(order.first_pro_ts), from: order.plan_before_first_pro, to: 'pro', dir: 'up' })
-  }
-  if (order.pro_to_premium_conversion_date) {
-    events.push({ date: fmtDate(order.pro_to_premium_conversion_date), from: 'pro', to: 'premium', dir: 'up' })
-  } else if (
-    order.premium_conversion_date &&
-    planTier(order.init_plan_type) < 2 &&
-    planTier(order.plan_type) >= 2
-  ) {
-    events.push({ date: fmtDate(order.premium_conversion_date), from: order.init_plan_type ?? 'free', to: 'premium', dir: 'up' })
-  }
-  if (order.first_ultra_ts && order.plan_before_first_ultra) {
-    events.push({ date: fmtDate(order.first_ultra_ts), from: order.plan_before_first_ultra, to: 'ultra', dir: 'up' })
-  }
-
-  // Downgrades
-  if (order.paid_to_free_date) {
-    events.push({ date: fmtDate(order.paid_to_free_date), from: order.init_plan_type ?? 'paid', to: 'free', dir: 'down' })
-  } else if (planTier(order.plan_type) < planTier(order.init_plan_type)) {
-    events.push({ date: null, from: order.init_plan_type ?? '?', to: order.plan_type ?? '?', dir: 'down' })
-  }
-
-  if (events.length === 0) {
+function MailPlanChanges({ txns }: { txns: { from: string; to: string; date: string }[] }) {
+  if (!txns.length) {
     return <span style={{ color: C.sub, fontSize: 13 }}>No plan changes</span>
   }
 
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-      {events.map((e, i) => (
-        <span key={i} style={{ fontSize: 13, color: C.sub }}>
-          <span style={{ color: planColor(e.from) }}>{neoPlanName(e.from)}</span>
-          <span style={{ margin: '0 4px', color: e.dir === 'down' ? '#f59e0b' : C.sub }}>
-            {e.dir === 'down' ? '↓' : '→'}
+      {txns.map((e, i) => {
+        const dir = planTier(e.to) >= planTier(e.from) ? 'up' : 'down'
+        return (
+          <span key={i} style={{ fontSize: 13, color: C.sub }}>
+            <span style={{ color: planColor(e.from) }}>{neoPlanName(e.from)}</span>
+            <span style={{ margin: '0 4px', color: dir === 'down' ? '#f59e0b' : C.sub }}>
+              {dir === 'down' ? '↓' : '→'}
+            </span>
+            <span style={{ color: planColor(e.to) }}>{neoPlanName(e.to)}</span>
+            <span style={{ color: C.sub, fontSize: 11, marginLeft: 4 }}>({fmtDate(e.date)})</span>
           </span>
-          <span style={{ color: planColor(e.to) }}>{neoPlanName(e.to)}</span>
-          <span style={{ color: C.sub, fontSize: 11, marginLeft: 4 }}>
-            {e.date ? `(${e.date})` : '(no date)'}
-          </span>
-        </span>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -318,7 +294,7 @@ function PlanChanges({ init, current }: { init: string | null; current: string |
   )
 }
 
-function MailProductRow({ order }: { order: Row }) {
+function MailProductRow({ order, planTxns }: { order: Row; planTxns: { from: string; to: string; date: string }[] }) {
   const [open, setOpen] = useState(false)
   const ageTxt = fmtAge(order.created_at)
 
@@ -367,7 +343,7 @@ function MailProductRow({ order }: { order: Row }) {
           </div>
           <div style={{ marginTop: 10, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
             <span style={{ color: C.sub, fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', paddingTop: 2, whiteSpace: 'nowrap' }}>Plan changes</span>
-            <MailPlanChanges order={order} />
+            <MailPlanChanges txns={planTxns} />
           </div>
         </div>
       )}
@@ -912,7 +888,7 @@ function NotesSection({ bundleId, initialNote }: { bundleId: number; initialNote
 // ── Bundle card ───────────────────────────────────────────────────────────────
 
 function BundleCard({
-  data, activityMap, featureMap, weeklyMap, accountInfoMap, topNonTitanClientMap, clientInfoMap, pmfData, pmfStatus, cannyPosts, cannyStatus,
+  data, activityMap, featureMap, weeklyMap, accountInfoMap, topNonTitanClientMap, clientInfoMap, pmfData, pmfStatus, cannyPosts, cannyStatus, planTxnMap,
 }: {
   data:                 BundleData
   activityMap:          SearchResult['activityMap']
@@ -925,8 +901,10 @@ function BundleCard({
   pmfStatus:            'idle' | 'loading' | 'loaded' | 'error'
   cannyPosts:           CannyPost[]
   cannyStatus:          'idle' | 'loading' | 'loaded' | 'error'
+  planTxnMap:           SearchResult['planTxnMap']
 }) {
   const { bundle, mailOrder, siteOrder, domainOrder, mailboxes, note } = data
+  const mailPlanTxns = mailOrder ? (planTxnMap[Number(mailOrder.order_id)] ?? []) : []
   const [personaOpen, setPersonaOpen] = useState(false)
   const [utmOpen, setUtmOpen]         = useState(false)
 
@@ -982,7 +960,7 @@ function BundleCard({
       {/* ── Products ── */}
       <div style={{ marginBottom: 14 }}>
         <RowLabel>Products</RowLabel>
-        {mailOrder   && <MailProductRow   order={mailOrder} />}
+        {mailOrder   && <MailProductRow   order={mailOrder} planTxns={mailPlanTxns} />}
         {siteOrder   && <SiteProductRow   order={siteOrder} />}
         {(domainOrder || bundle.neo_domain_order_id) && (
           <DomainProductRow order={domainOrder} offering={bundle.neo_offering} />
@@ -1000,7 +978,7 @@ function BundleCard({
             style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: utmOpen ? 8 : 0 }}
           >
             <RowLabel>Visit / UTM info</RowLabel>
-            <span style={{ color: C.sub, fontSize: 12, marginBottom: 5 }}>{utmOpen ? '▲' : '▼'}</span>
+            <span style={{ color: C.sub, fontSize: 12, marginBottom: 5 }}>{utmOpen ? '▼' : '▶'}</span>
           </div>
           {utmOpen && (
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingLeft: 4 }}>
@@ -1029,7 +1007,7 @@ function BundleCard({
             style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: personaOpen ? 8 : 0 }}
           >
             <RowLabel>Persona survey</RowLabel>
-            <span style={{ color: C.sub, fontSize: 12, marginBottom: 5 }}>{personaOpen ? '▲' : '▼'}</span>
+            <span style={{ color: C.sub, fontSize: 12, marginBottom: 5 }}>{personaOpen ? '▼' : '▶'}</span>
           </div>
           {personaOpen && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px 20px', paddingLeft: 4 }}>
@@ -1331,6 +1309,7 @@ function FindUser() {
                 pmfStatus={pmfStatus}
                 cannyPosts={cannyPosts}
                 cannyStatus={cannyStatus}
+                planTxnMap={result.planTxnMap ?? {}}
               />
             ))}
           </>

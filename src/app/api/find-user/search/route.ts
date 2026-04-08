@@ -45,16 +45,6 @@ const SITE_ORDER_COLS = `
   first_payment_date, renewals, trial_expiry_date, suspend_date, delete_date
 `.trim()
 
-// Plan history — from flockmail.domain_aggregate_metrics (not neo_domain_aggregate_metrics)
-const PLAN_HISTORY_COLS = `
-  order_id,
-  first_starter_ts, plan_before_first_starter,
-  first_pro_ts, plan_before_first_pro,
-  first_ultra_ts, plan_before_first_ultra,
-  premium_conversion_date, pro_to_premium_conversion_date,
-  paid_to_free_date
-`.trim()
-
 const DOMAIN_ORDER_COLS = `
   order_id, domain_name, status, plan_type, init_plan_type,
   billing_cycle, neo_offering, created_at, expiry_date,
@@ -260,21 +250,15 @@ export async function POST(req: Request) {
         : Promise.resolve([]),
       mailOrderIds.length
         ? runQuery(DB,
-            `SELECT ${PLAN_HISTORY_COLS}
-             FROM flockmail.domain_aggregate_metrics
-             WHERE order_id IN (${mailOrderIds.join(',')})`)
+            `SELECT order_id, domain_old_plan_type, domain_plan_type, transaction_date, payment_for
+             FROM flockmail.neo_transaction_report
+             WHERE order_id IN (${mailOrderIds.join(',')})
+               AND domain_old_plan_type != domain_plan_type
+               AND domain_old_plan_type IS NOT NULL
+               AND domain_plan_type IS NOT NULL
+             ORDER BY transaction_date ASC`)
         : Promise.resolve([]),
     ])
-
-    // Merge plan history into mail order rows
-    const planHistoryMap: Record<number, Record<string, unknown>> = {}
-    for (const r of planHistoryRows) {
-      planHistoryMap[Number(r.order_id)] = r
-    }
-    const mergedMailOrderRows = mailOrderRows.map(r => ({
-      ...r,
-      ...(planHistoryMap[Number(r.order_id)] ?? {}),
-    }))
 
     // ── Step 5: Fetch activity, features, weekly + client/account data ────────
 
@@ -508,7 +492,19 @@ export async function POST(req: Request) {
     // ── Step 7: Build index maps and return ───────────────────────────────────
 
     // Index orders by order_id for quick lookup
-    const mailOrderMap   = Object.fromEntries(mergedMailOrderRows.map(r => [Number(r.order_id), r]))
+    // Build plan change map: order_id → sorted transaction rows
+    const planTxnMap: Record<number, { from: string; to: string; date: string }[]> = {}
+    for (const r of planHistoryRows) {
+      const oid = Number(r.order_id)
+      if (!planTxnMap[oid]) planTxnMap[oid] = []
+      planTxnMap[oid].push({
+        from: String(r.domain_old_plan_type),
+        to:   String(r.domain_plan_type),
+        date: String(r.transaction_date),
+      })
+    }
+
+    const mailOrderMap   = Object.fromEntries(mailOrderRows.map(r => [Number(r.order_id), r]))
     const siteOrderMap   = Object.fromEntries(siteOrderRows.map(r => [Number(r.order_id), r]))
     const domainOrderMap = Object.fromEntries(domainOrderRows.map(r => [Number(r.order_id), r]))
 
@@ -544,6 +540,7 @@ export async function POST(req: Request) {
       accountInfoMap,
       topNonTitanClientMap,
       clientInfoMap,
+      planTxnMap,
     })
 
   } catch (err) {
