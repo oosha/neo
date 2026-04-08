@@ -83,11 +83,14 @@ function planTier(plan: string | null | undefined): number {
 // Neo display names: internal DB values → user-facing plan names
 function neoPlanName(plan: string | null | undefined): string {
   const p = (plan ?? '').toLowerCase()
-  if (p.includes('ultra'))   return 'Max'
-  if (p.includes('premium')) return 'Standard'
-  if (p.includes('pro'))     return 'Starter'
-  if (p.includes('free'))    return 'Free'
-  return cap(plan ?? '')
+  const isTrial = p.includes('trial')
+  let base = ''
+  if (p.includes('ultra'))        base = 'Max'
+  else if (p.includes('premium')) base = 'Standard'
+  else if (p.includes('pro'))     base = 'Starter'
+  else if (p.includes('free'))    base = 'Free'
+  else                            base = cap(plan ?? '')
+  return isTrial ? `${base} trial` : base
 }
 
 function planColor(plan: string | null | undefined): string {
