@@ -195,6 +195,7 @@ interface SearchResult {
   clientInfoMap:        Record<number, ClientInfo>
   planTxnMap:           Record<number, { from: string; to: string; date: string }[]>
   anchorMap:            Record<number, string | null>
+  featureFloor:         string | null
   error?:               string
 }
 
@@ -559,12 +560,15 @@ function CannyPostRow({ post }: { post: CannyPost }) {
 function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntry[]; featureFloor?: string | null }) {
   if (features.length === 0) return <div style={{ color: C.sub, fontSize: 13 }}>No feature usage data.</div>
 
-  const lifetimeLabel = featureFloor === 'last-90d' ? 'last 90d' : featureFloor ? `since ${featureFloor.slice(0,7)}` : 'lifetime'
+  const windowLabel = featureFloor === 'last-90d' ? 'last 90d' : featureFloor ? `since ${featureFloor.slice(0,7)}` : 'lifetime'
   const catLabel: Record<string, string> = {
-    ...CAT_LABEL,
-    advanced_one_time_setup: `One-time setup (${lifetimeLabel})`,
-    rarely_used:             `Setup actions (${lifetimeLabel})`,
-    toggled_features:        `Settings toggled (${lifetimeLabel})`,
+    advanced_one_time_setup: `One-time setup (${windowLabel})`,
+    advanced_regular_use:    `Regular use (${windowLabel})`,
+    ultra_features:          `Ultra features (${windowLabel})`,
+    email_core_actions:      `Core email actions (${windowLabel})`,
+    rarely_used:             `Setup actions (${windowLabel})`,
+    toggled_features:        `Settings toggled (${windowLabel})`,
+    sending_limit:           `Hit send limits (${windowLabel})`,
   }
 
   // ── Summary chips ─────────────────────────────────────────────────────────
@@ -695,7 +699,7 @@ function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntr
 // ── Mailbox card ──────────────────────────────────────────────────────────────
 
 function MailboxCard({
-  mbx, activity, features, weekly, accountInfo, topNonTitanClient, clientInfo, anchorDate,
+  mbx, activity, features, weekly, accountInfo, topNonTitanClient, clientInfo, anchorDate, featureFloor,
 }: {
   mbx:               Row
   activity:          { sent: number; read: number; received: number } | undefined
@@ -705,6 +709,7 @@ function MailboxCard({
   topNonTitanClient: string | null
   clientInfo:        ClientInfo | null
   anchorDate:        string | null
+  featureFloor:      string | null
 }) {
   const [open, setOpen] = useState(false)
   const displayName = mbx.name || [mbx.first_name, mbx.last_name].filter(Boolean).join(' ') || null
@@ -848,9 +853,9 @@ function MailboxCard({
           {/* Feature usage */}
           {features.length > 0 && (
             <div>
-              <RowLabel>Feature usage (last 90d / lifetime)</RowLabel>
+              <RowLabel>Feature usage ({featureFloor === 'last-90d' ? 'last 90d' : featureFloor ? `since ${featureFloor.slice(0,7)}` : 'lifetime'})</RowLabel>
               <div style={{ marginTop: 8 }}>
-                <FeatureUsageSection features={features} featureFloor={null} />
+                <FeatureUsageSection features={features} featureFloor={featureFloor} />
               </div>
             </div>
           )}
@@ -919,7 +924,7 @@ function NotesSection({ bundleId, initialNote }: { bundleId: number; initialNote
 // ── Bundle card ───────────────────────────────────────────────────────────────
 
 function BundleCard({
-  data, activityMap, featureMap, weeklyMap, accountInfoMap, topNonTitanClientMap, clientInfoMap, pmfData, pmfStatus, cannyPosts, cannyStatus, planTxnMap, anchorMap,
+  data, activityMap, featureMap, weeklyMap, accountInfoMap, topNonTitanClientMap, clientInfoMap, pmfData, pmfStatus, cannyPosts, cannyStatus, planTxnMap, anchorMap, featureFloor,
 }: {
   data:                 BundleData
   activityMap:          SearchResult['activityMap']
@@ -934,6 +939,7 @@ function BundleCard({
   cannyStatus:          'idle' | 'loading' | 'loaded' | 'error'
   planTxnMap:           SearchResult['planTxnMap']
   anchorMap:            SearchResult['anchorMap']
+  featureFloor:         SearchResult['featureFloor']
 }) {
   const { bundle, mailOrder, siteOrder, domainOrder, mailboxes, note } = data
   const mailPlanTxns = mailOrder ? (planTxnMap[Number(mailOrder.order_id)] ?? []) : []
@@ -1080,6 +1086,7 @@ function BundleCard({
             topNonTitanClient={topNonTitanClientMap?.[Number(mbx.account_id)] ?? null}
             clientInfo={clientInfoMap?.[Number(mbx.account_id)] ?? null}
             anchorDate={anchorMap?.[Number(mbx.account_id)] ?? null}
+            featureFloor={featureFloor}
           />
         ))}
       </div>
@@ -1349,6 +1356,7 @@ function FindUser() {
                 cannyStatus={cannyStatus}
                 planTxnMap={result.planTxnMap ?? {}}
                 anchorMap={result.anchorMap ?? {}}
+                featureFloor={result.featureFloor ?? null}
               />
             ))}
           </>

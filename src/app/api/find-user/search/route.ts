@@ -315,13 +315,17 @@ export async function POST(req: Request) {
         ORDER BY account_id, total_usage DESC
       `
       let featureRows: Record<string, unknown>[] = []
+      let featureFloor: string | null = null   // null = lifetime (from 2020)
       try {
         featureRows = await runQuery(DB, FEATURE_QUERY(`dt >= date '2020-01-01'`))
+        featureFloor = null
       } catch {
         try {
           featureRows = await runQuery(DB, FEATURE_QUERY(`dt >= date '2025-05-01'`))
+          featureFloor = '2025-05-01'
         } catch {
           featureRows = await runQuery(DB, FEATURE_QUERY(`dt >= current_date - interval '90' day`))
+          featureFloor = 'last-90d'
         }
       }
 
@@ -584,6 +588,7 @@ export async function POST(req: Request) {
       clientInfoMap,
       planTxnMap,
       anchorMap,
+      featureFloor,
     })
 
   } catch (err) {
