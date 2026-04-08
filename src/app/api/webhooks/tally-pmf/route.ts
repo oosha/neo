@@ -38,10 +38,11 @@ function verifySignature(body: string, signature: string | null): boolean {
 }
 
 interface TallyField {
-  key:   string
-  label: string
-  type:  string
-  value: string | string[] | null
+  key:     string
+  label:   string
+  type:    string
+  value:   string | string[] | null
+  options?: { id: string; text: string }[]
 }
 
 interface TallyPayload {
@@ -62,8 +63,14 @@ function extractValue(fields: TallyField[], ...labelKeywords: string[]): string 
     const lowerLabel = f.label.toLowerCase()
     const lowerKey   = f.key.toLowerCase()
     if (labelKeywords.some(kw => lowerLabel.includes(kw) || lowerKey.includes(kw))) {
-      const v = Array.isArray(f.value) ? f.value[0] : f.value
-      return v ? String(v).trim() : null
+      const raw = Array.isArray(f.value) ? f.value[0] : f.value
+      if (!raw) return null
+      // Resolve option ID → text for MULTIPLE_CHOICE fields
+      if (f.options?.length) {
+        const match = f.options.find(o => o.id === raw)
+        return match ? match.text.trim() : String(raw).trim()
+      }
+      return String(raw).trim()
     }
   }
   return null
