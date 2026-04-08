@@ -45,6 +45,16 @@ const SITE_ORDER_COLS = `
   first_payment_date, renewals, trial_expiry_date, suspend_date, delete_date
 `.trim()
 
+// Plan history — from flockmail.domain_aggregate_metrics (not neo_domain_aggregate_metrics)
+const PLAN_HISTORY_COLS = `
+  order_id,
+  first_starter_ts, plan_before_first_starter,
+  first_pro_ts, plan_before_first_pro,
+  first_ultra_ts, plan_before_first_ultra,
+  premium_conversion_date, pro_to_premium_conversion_date,
+  paid_to_free_date
+`.trim()
+
 const DOMAIN_ORDER_COLS = `
   order_id, domain_name, status, plan_type, init_plan_type,
   billing_cycle, neo_offering, created_at, expiry_date,
@@ -222,7 +232,7 @@ export async function POST(req: Request) {
 
     // ── Step 4: Fetch all product orders + mailboxes in parallel ─────────────
 
-    const [mailOrderRows, siteOrderRows, domainOrderRows, mailboxRows] = await Promise.all([
+    const [mailOrderRows, siteOrderRows, domainOrderRows, mailboxRows, planHistoryRows] = await Promise.all([
       mailOrderIds.length
         ? runQuery(DB,
             `SELECT ${MAIL_ORDER_COLS}
@@ -248,7 +258,23 @@ export async function POST(req: Request) {
              WHERE order_id IN (${mailOrderIds.join(',')})
              ORDER BY is_admin DESC, account_id ASC`)
         : Promise.resolve([]),
+      mailOrderIds.length
+        ? runQuery(DB,
+            `SELECT ${PLAN_HISTORY_COLS}
+             FROM flockmail.domain_aggregate_metrics
+             WHERE order_id IN (${mailOrderIds.join(',')})`)
+        : Promise.resolve([]),
     ])
+
+    // Merge plan history into mail order rows
+    const planHistoryMap: Record<number, Record<string, unknown>> = {}
+    for (const r of planHistoryRows) {
+      planHistoryMap[Number(r.order_id)] = r
+    }
+    const mergedMailOrderRows = mailOrderRows.map(r => ({
+      ...r,
+      ...(planHistoryMap[Number(r.order_id)] ?? {}),
+    }))
 
     // ── Step 5: Fetch activity, features, weekly + client/account data ────────
 
@@ -482,7 +508,7 @@ export async function POST(req: Request) {
     // ── Step 7: Build index maps and return ───────────────────────────────────
 
     // Index orders by order_id for quick lookup
-    const mailOrderMap   = Object.fromEntries(mailOrderRows.map(r => [Number(r.order_id), r]))
+    const mailOrderMap   = Object.fromEntries(mergedMailOrderRows.map(r => [Number(r.order_id), r]))
     const siteOrderMap   = Object.fromEntries(siteOrderRows.map(r => [Number(r.order_id), r]))
     const domainOrderMap = Object.fromEntries(domainOrderRows.map(r => [Number(r.order_id), r]))
 

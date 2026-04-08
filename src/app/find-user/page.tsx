@@ -74,11 +74,20 @@ function cap(s: string | null | undefined): string {
 
 function planTier(plan: string | null | undefined): number {
   const p = (plan ?? '').toLowerCase()
-  if (p.includes('business') || p.includes('ultra')) return 4
-  if (p.includes('growth')   || p.includes('premium')) return 3
-  if (p.includes('standard') || p.includes('pro')) return 2
-  if (p.includes('starter') || p.includes('lite') || p.includes('basic')) return 1
-  return 0
+  if (p.includes('ultra'))   return 3  // Max
+  if (p.includes('premium')) return 2  // Standard
+  if (p.includes('pro'))     return 1  // Starter
+  return 0  // Free / unknown
+}
+
+// Neo display names: internal DB values → user-facing plan names
+function neoPlanName(plan: string | null | undefined): string {
+  const p = (plan ?? '').toLowerCase()
+  if (p.includes('ultra'))   return 'Max'
+  if (p.includes('premium')) return 'Standard'
+  if (p.includes('pro'))     return 'Starter'
+  if (p.includes('free'))    return 'Free'
+  return cap(plan ?? '')
 }
 
 function planColor(plan: string | null | undefined): string {
@@ -226,6 +235,57 @@ function CustomerHeader({
   )
 }
 
+// ── Plan changes (full timeline) ─────────────────────────────────────────────
+
+function MailPlanChanges({ order }: { order: Row }) {
+  const events: { date: string | null; from: string; to: string; dir: 'up' | 'down' }[] = []
+
+  // Upgrades — pro=Starter, premium=Standard, ultra=Max
+  if (order.first_pro_ts && order.plan_before_first_pro) {
+    events.push({ date: fmtDate(order.first_pro_ts), from: order.plan_before_first_pro, to: 'pro', dir: 'up' })
+  }
+  if (order.pro_to_premium_conversion_date) {
+    events.push({ date: fmtDate(order.pro_to_premium_conversion_date), from: 'pro', to: 'premium', dir: 'up' })
+  } else if (
+    order.premium_conversion_date &&
+    planTier(order.init_plan_type) < 2 &&
+    planTier(order.plan_type) >= 2
+  ) {
+    events.push({ date: fmtDate(order.premium_conversion_date), from: order.init_plan_type ?? 'free', to: 'premium', dir: 'up' })
+  }
+  if (order.first_ultra_ts && order.plan_before_first_ultra) {
+    events.push({ date: fmtDate(order.first_ultra_ts), from: order.plan_before_first_ultra, to: 'ultra', dir: 'up' })
+  }
+
+  // Downgrades
+  if (order.paid_to_free_date) {
+    events.push({ date: fmtDate(order.paid_to_free_date), from: order.init_plan_type ?? 'paid', to: 'free', dir: 'down' })
+  } else if (planTier(order.plan_type) < planTier(order.init_plan_type)) {
+    events.push({ date: null, from: order.init_plan_type ?? '?', to: order.plan_type ?? '?', dir: 'down' })
+  }
+
+  if (events.length === 0) {
+    return <span style={{ color: C.sub, fontSize: 13 }}>No plan changes</span>
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      {events.map((e, i) => (
+        <span key={i} style={{ fontSize: 13, color: C.sub }}>
+          <span style={{ color: planColor(e.from) }}>{neoPlanName(e.from)}</span>
+          <span style={{ margin: '0 4px', color: e.dir === 'down' ? '#f59e0b' : C.sub }}>
+            {e.dir === 'down' ? '↓' : '→'}
+          </span>
+          <span style={{ color: planColor(e.to) }}>{neoPlanName(e.to)}</span>
+          <span style={{ color: C.sub, fontSize: 11, marginLeft: 4 }}>
+            {e.date ? `(${e.date})` : '(no date)'}
+          </span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // ── Upgrade path helper ───────────────────────────────────────────────────────
 
 function UpgradePath({ init, current, label }: { init: string | null; current: string | null; label?: string }) {
@@ -304,6 +364,10 @@ function MailProductRow({ order }: { order: Row }) {
             <KV label="Active 7d / 30d / 90d" value={`${order.has_sent_read_last_7d ? '✓' : '✗'} · ${order.has_sent_read_last_30d ? '✓' : '✗'} · ${order.has_sent_read_last_90d ? '✓' : '✗'}`} />
             {order.suspend_date && <KV label="Suspended" value={fmtDate(order.suspend_date)} color={C.pink} />}
             {order.suspension_reason && <KV label="Suspension reason" value={cap(order.suspension_reason)} color={C.pink} />}
+          </div>
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            <span style={{ color: C.sub, fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', paddingTop: 2, whiteSpace: 'nowrap' }}>Plan changes</span>
+            <MailPlanChanges order={order} />
           </div>
         </div>
       )}
