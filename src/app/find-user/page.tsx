@@ -341,7 +341,7 @@ function MailProductRow({ order }: { order: Row }) {
         ) : (
           <span style={{ color: C.pink, fontSize: 12 }}>· ✗ MX unverified</span>
         )}
-        <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▲' : '▼'}</span>
+        <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▼' : '▶'}</span>
       </div>
       {open && (
         <div style={{ padding: '12px 14px', background: C.card, borderTop: `1px solid ${C.border}` }}>
@@ -397,7 +397,7 @@ function SiteProductRow({ order }: { order: Row }) {
         {order.first_site_publish_dt && (
           <span style={{ color: '#4caf82', fontSize: 12 }}>· Published {fmtDate(order.first_site_publish_dt)}</span>
         )}
-        <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▲' : '▼'}</span>
+        <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▼' : '▶'}</span>
       </div>
       {open && (
         <div style={{ padding: '12px 14px', background: C.card, borderTop: `1px solid ${C.border}` }}>
@@ -442,7 +442,7 @@ function DomainProductRow({ order, offering }: { order: Row | null; offering: st
         {order && <Badge label={cap(order.status)} color={statusColor(order.status)} small />}
         {order?.plan_type && <Badge label={cap(order.plan_type)} color={planColor(order.plan_type)} small />}
         <span style={{ color: C.sub, fontSize: 12 }}>No upgrade path</span>
-        {order && <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▲' : '▼'}</span>}
+        {order && <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▼' : '▶'}</span>}
       </div>
       {open && order && (
         <div style={{ padding: '12px 14px', background: C.card, borderTop: `1px solid ${C.border}` }}>
@@ -749,7 +749,7 @@ function MailboxCard({
             )}
           </div>
         </div>
-        <span style={{ color: C.sub, fontSize: 14 }}>{open ? '▲' : '▼'}</span>
+        <span style={{ color: C.sub, fontSize: 14 }}>{open ? '▼' : '▶'}</span>
       </div>
 
       {open && (
