@@ -303,30 +303,37 @@ export async function POST(req: Request) {
     if (accountIds.length) {
       const idsStr = accountIds.join(',')
 
-      // Feature query with try-fallback for broken S3 partitions
-      const FEATURE_QUERY = (dateClause: string) => `
+      // Feature query: primary = last 90d per-account anchor, fallback = from 2020
+      const FEATURE_QUERY_90D = `
+        WITH ${ANCHORS_CTE('anc')}
+        SELECT f.account_id, feature, action, category, device,
+               CAST(SUM(usage) AS BIGINT) AS total_usage,
+               CAST(MAX(f.dt) AS VARCHAR) AS last_seen
+        FROM flockmail.titan_features_usage_v4 f
+        JOIN anc ON anc.account_id = f.account_id
+        WHERE f.dt >= anc.anchor_date - interval '90' day
+          AND f.dt <= anc.anchor_date
+          AND f.dt >= date '${globalMinAnchor}' - interval '90' day
+        GROUP BY f.account_id, feature, action, category, device
+        ORDER BY f.account_id, total_usage DESC
+      `
+      const FEATURE_QUERY_LIFETIME = `
         SELECT account_id, feature, action, category, device,
                CAST(SUM(usage) AS BIGINT) AS total_usage,
                CAST(MAX(dt) AS VARCHAR) AS last_seen
         FROM flockmail.titan_features_usage_v4
         WHERE account_id IN (${idsStr})
-          AND ${dateClause}
+          AND dt >= date '2020-01-01'
         GROUP BY account_id, feature, action, category, device
         ORDER BY account_id, total_usage DESC
       `
       let featureRows: Record<string, unknown>[] = []
-      let featureFloor: string | null = null   // null = lifetime (from 2020)
+      let featureFloor: string | null = 'last-90d'   // default: 90d
       try {
-        featureRows = await runQuery(DB, FEATURE_QUERY(`dt >= date '2020-01-01'`))
-        featureFloor = null
+        featureRows = await runQuery(DB, FEATURE_QUERY_90D)
       } catch {
-        try {
-          featureRows = await runQuery(DB, FEATURE_QUERY(`dt >= date '2025-05-01'`))
-          featureFloor = '2025-05-01'
-        } catch {
-          featureRows = await runQuery(DB, FEATURE_QUERY(`dt >= current_date - interval '90' day`))
-          featureFloor = 'last-90d'
-        }
+        featureRows = await runQuery(DB, FEATURE_QUERY_LIFETIME)
+        featureFloor = null   // null = lifetime fallback (from 2020)
       }
 
       const [activityRows, weeklyRows, weeklyFeatRows, accountInfoRows, clientRows, mobileSentRows] = await Promise.all([
