@@ -90,6 +90,23 @@ export async function POST(req: Request) {
       resolvedBundleIds = rows.map(r => Number(r.bundle_id)).filter(Boolean)
       if (!resolvedBundleIds.length) return NextResponse.json({ error: `No bundles found for customer: ${value}` }, { status: 404 })
 
+    } else if (type === 'customer_email') {
+      const rows = await runQuery(DB,
+        `SELECT bundle_id, customer_id FROM flockmail.neo_bundle_aggregate_metrics
+         WHERE LOWER(customer_email) = LOWER('${san(value)}') ORDER BY created_at DESC LIMIT 1`)
+      if (!rows[0]) return NextResponse.json({ error: `Customer not found: ${value}` }, { status: 404 })
+      customerId = Number(rows[0].customer_id) || null
+      // fetch all bundles for this customer
+      if (customerId) {
+        const allRows = await runQuery(DB,
+          `SELECT bundle_id FROM flockmail.neo_bundle_aggregate_metrics
+           WHERE customer_id = ${customerId} ORDER BY created_at DESC`)
+        resolvedBundleIds = allRows.map(r => Number(r.bundle_id)).filter(Boolean)
+      } else {
+        resolvedBundleIds = [Number(rows[0].bundle_id)]
+      }
+      if (!resolvedBundleIds.length) return NextResponse.json({ error: `No bundles found for: ${value}` }, { status: 404 })
+
     } else if (type === 'domain') {
       const rows = await runQuery(DB,
         `SELECT bundle_id, customer_id FROM flockmail.neo_bundle_aggregate_metrics
