@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS neo_pmf_feedback (
   id                SERIAL PRIMARY KEY,
   account_id        BIGINT,
   customer_id       BIGINT,
+  email             TEXT,
   product           TEXT,
   score             TEXT,
   feedback_text     TEXT,
@@ -21,4 +22,5 @@ CREATE TABLE IF NOT EXISTS neo_pmf_feedback (
 
 CREATE INDEX IF NOT EXISTS neo_pmf_feedback_account_id  ON neo_pmf_feedback(account_id);
 CREATE INDEX IF NOT EXISTS neo_pmf_feedback_customer_id ON neo_pmf_feedback(customer_id);
-CREATE INDEX IF NOT EXISTS neo_pmf_feedback_product     ON neo_pmf_feedback(product)
+CREATE INDEX IF NOT EXISTS neo_pmf_feedback_product     ON neo_pmf_feedback(product);
+CREATE INDEX IF NOT EXISTS neo_pmf_feedback_email       ON neo_pmf_feedback(email)

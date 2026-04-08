@@ -15,6 +15,7 @@ const STATEMENTS = [
     id                SERIAL PRIMARY KEY,
     account_id        BIGINT,
     customer_id       BIGINT,
+    email             TEXT,
     product           TEXT,
     score             TEXT,
     feedback_text     TEXT,
@@ -25,6 +26,8 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS neo_pmf_feedback_account_id  ON neo_pmf_feedback(account_id)`,
   `CREATE INDEX IF NOT EXISTS neo_pmf_feedback_customer_id ON neo_pmf_feedback(customer_id)`,
   `CREATE INDEX IF NOT EXISTS neo_pmf_feedback_product     ON neo_pmf_feedback(product)`,
+  `ALTER TABLE neo_pmf_feedback ADD COLUMN IF NOT EXISTS email TEXT`,
+  `CREATE INDEX IF NOT EXISTS neo_pmf_feedback_email ON neo_pmf_feedback(email)`,
 ]
 
 export async function GET() {

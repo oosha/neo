@@ -99,6 +99,12 @@ export async function POST(req: Request) {
     const accountId     = accountIdRaw  ? Number(accountIdRaw)  : null
     const customerId    = customerIdRaw ? Number(customerIdRaw) : null
 
+    // Extract email — from EMAIL type field or a field labelled/keyed 'email'
+    const emailRaw = fields.find((f: TallyField) =>
+      f.type === 'EMAIL' || f.key?.toLowerCase() === 'email' || f.label?.toLowerCase() === 'email'
+    )?.value ?? null
+    const email = emailRaw ? String(Array.isArray(emailRaw) ? emailRaw[0] : emailRaw).trim() || null : null
+
     // Extract PMF score — look for "feel" or "disappoint" or multiple choice question
     const scoreRaw = extractValue(fields, 'feel', 'disappoint', 'score', 'rating')
     const score    = scoreRaw ? normaliseScore(scoreRaw) : null
@@ -113,14 +119,14 @@ export async function POST(req: Request) {
     }
     const feedbackText = feedbackParts.join('\n') || null
 
-    // Upsert into Neon
+    // Upsert into Neon — update email on re-delivery in case it was missing first time
     await sql`
       INSERT INTO neo_pmf_feedback
-        (account_id, customer_id, product, score, feedback_text, submitted_at, tally_form_id, tally_response_id)
+        (account_id, customer_id, email, product, score, feedback_text, submitted_at, tally_form_id, tally_response_id)
       VALUES
-        (${accountId}, ${customerId}, ${product}, ${score}, ${feedbackText},
+        (${accountId}, ${customerId}, ${email}, ${product}, ${score}, ${feedbackText},
          ${createdAt ? new Date(createdAt) : new Date()}, ${formId}, ${responseId})
-      ON CONFLICT (tally_response_id) DO NOTHING
+      ON CONFLICT (tally_response_id) DO UPDATE SET email = EXCLUDED.email
     `
 
     return NextResponse.json({ ok: true })

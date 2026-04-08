@@ -331,7 +331,7 @@ function SiteProductRow({ order }: { order: Row }) {
         </span>
         <PlanChanges init={order.init_plan_type} current={order.plan_type} />
         {order.first_site_publish_dt && (
-          <span style={{ color: C.green, fontSize: 12 }}>· Published {fmtDate(order.first_site_publish_dt)}</span>
+          <span style={{ color: '#4caf82', fontSize: 12 }}>· Published {fmtDate(order.first_site_publish_dt)}</span>
         )}
         <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▲' : '▼'}</span>
       </div>
@@ -347,7 +347,7 @@ function SiteProductRow({ order }: { order: Row }) {
             <KV label="Site state"   value={cap(order.neo_site_state)} />
             <KV label="Product source" value={cap(order.product_source)} />
             <KV label="Theme"        value={cap(order.product_theme)} />
-            <KV label="First published" value={fmtDate(order.first_site_publish_dt)} color={order.first_site_publish_dt ? C.green : undefined} />
+            <KV label="First published" value={fmtDate(order.first_site_publish_dt)} color={order.first_site_publish_dt ? '#4caf82' : undefined} />
             <KV label="A record"     value={order.a_verified ? `✓ ${fmtDate(order.a_verified_ts)}` : '✗'} color={order.a_verified ? C.green : C.pink} />
             <KV label="WWW CNAME"    value={order.www_cname_verified ? `✓ ${fmtDate(order.www_cname_verified_ts)}` : '✗'} color={order.www_cname_verified ? C.green : C.pink} />
             <KV label="First paid"   value={fmtDate(order.first_payment_date)} />
@@ -907,7 +907,7 @@ function BundleCard({
             {bundle.customer_id && <span>Customer <span style={{ color: C.text }}>{bundle.customer_id}</span></span>}
             <span>Created <span style={{ color: C.text }}>{fmtDate(bundle.created_at)}</span></span>
             {bundle.neo_site_status && <span>Site: <span style={{ color: C.violet }}>{cap(bundle.neo_site_status)}</span></span>}
-            {bundle.first_site_publish_dt && <span>Published <span style={{ color: C.green }}>{fmtDate(bundle.first_site_publish_dt)}</span></span>}
+            {bundle.first_site_publish_dt && <span>Published <span style={{ color: '#4caf82' }}>{fmtDate(bundle.first_site_publish_dt)}</span></span>}
             {bundle.billing_cycle && <span>Billing: <span style={{ color: C.text }}>{cap(bundle.billing_cycle)}</span></span>}
             {bundle.is_paid === 1 && <span style={{ color: C.green }}>✓ Paid</span>}
             {bundle.suspend_date && <span style={{ color: C.pink }}>Suspended {fmtDate(bundle.suspend_date)}</span>}
@@ -1101,13 +1101,14 @@ function FindUser() {
   const [cannyStatus, setCannyStatus] = useState<'idle'|'loading'|'loaded'|'error'>('idle')
   const [cannyPosts,  setCannyPosts]  = useState<CannyPost[]>([])
 
-  const fetchPmf = useCallback(async (accountIds: number[], customerId: number | null) => {
-    if (!accountIds.length && !customerId) return
+  const fetchPmf = useCallback(async (accountIds: number[], customerId: number | null, emails: string[]) => {
+    if (!accountIds.length && !customerId && !emails.length) return
     setPmfStatus('loading'); setPmfData([])
     try {
       const qs = new URLSearchParams()
       if (accountIds.length) qs.set('account_ids', accountIds.join(','))
       if (customerId)        qs.set('customer_id', String(customerId))
+      if (emails.length)     qs.set('emails', emails.join(','))
       const res  = await fetch(`/api/find-user/pmf?${qs}`)
       const data = await res.json()
       if (!res.ok || data.error) { setPmfStatus('error'); return }
@@ -1149,7 +1150,7 @@ function FindUser() {
         const allMailboxes  = (data.bundles ?? []).flatMap((b: BundleData) => b.mailboxes)
         const allAccountIds = allMailboxes.map((m: Row) => Number(m.account_id)).filter(Boolean)
         const allEmails     = allMailboxes.map((m: Row) => m.email).filter(Boolean) as string[]
-        fetchPmf(allAccountIds, data.customerId)
+        fetchPmf(allAccountIds, data.customerId, allEmails)
         fetchCanny(allEmails)
       }
     } catch (err) {
