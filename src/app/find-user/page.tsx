@@ -714,8 +714,8 @@ function MailboxCard({
               </span>
             } />
             {mbx.referral_code             && <KV label="Referral code"       value={mbx.referral_code} />}
-            {mbx.referred_invitee_count > 0 && <KV label="Referrals"          value={`${mbx.referred_invitee_count} sent`} />}
-            {mbx.referral_reward_earned > 0 && <KV label="Reward earned"      value={`${mbx.referral_reward_earned}`} />}
+            {mbx.referred_invitee_count > 0 && <KV label="Referrals"     value={`${mbx.referred_invitee_count} paid invitees`} />}
+            {mbx.referral_reward_earned > 0 && <KV label="Reward earned" value={`$${Number(mbx.referral_reward_earned).toFixed(2)}`} />}
             {mbx.suspend_date              && <KV label="Suspended"           value={fmtDate(mbx.suspend_date)} color={C.pink} />}
             {mbx.suspension_reason         && <KV label="Suspension reason"   value={cap(mbx.suspension_reason)} color={C.pink} />}
           </div>
