@@ -36,6 +36,9 @@ function getSql() {
     process.env.DATABASE_URL ??
     process.env.POSTGRES_URL
   if (!connectionString) throw new Error('No Neo database connection string found (set neo_DATABASE_URL)')
+  if (!connectionString.startsWith('postgresql://') && !connectionString.startsWith('postgres://')) {
+    throw new Error(`Neon connection string must start with postgresql:// — got: ${connectionString.slice(0, 60)}`)
+  }
   return neon(connectionString)
 }
 
