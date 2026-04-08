@@ -560,16 +560,7 @@ function CannyPostRow({ post }: { post: CannyPost }) {
 function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntry[]; featureFloor?: string | null }) {
   if (features.length === 0) return <div style={{ color: C.sub, fontSize: 13 }}>No feature usage data.</div>
 
-  const windowLabel = featureFloor === 'last-90d' ? 'last 90d' : featureFloor ? `since ${featureFloor.slice(0,7)}` : 'lifetime'
-  const catLabel: Record<string, string> = {
-    advanced_one_time_setup: `One-time setup (${windowLabel})`,
-    advanced_regular_use:    `Regular use (${windowLabel})`,
-    ultra_features:          `Ultra features (${windowLabel})`,
-    email_core_actions:      `Core email actions (${windowLabel})`,
-    rarely_used:             `Setup actions (${windowLabel})`,
-    toggled_features:        `Settings toggled (${windowLabel})`,
-    sending_limit:           `Hit send limits (${windowLabel})`,
-  }
+  const catLabel: Record<string, string> = { ...CAT_LABEL }
 
   // ── Summary chips ─────────────────────────────────────────────────────────
   const usedKeys = new Set(features.map(f => f.feature))
@@ -853,7 +844,7 @@ function MailboxCard({
           {/* Feature usage */}
           {features.length > 0 && (
             <div>
-              <RowLabel>Feature usage ({featureFloor === 'last-90d' ? 'last 90d' : featureFloor ? `since ${featureFloor.slice(0,7)}` : 'lifetime'})</RowLabel>
+              <RowLabel>Feature usage</RowLabel>
               <div style={{ marginTop: 8 }}>
                 <FeatureUsageSection features={features} featureFloor={featureFloor} />
               </div>
