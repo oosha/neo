@@ -37,9 +37,9 @@ const STATUS_COLOR: Record<string, string> = {
   active: C.green, deleted: C.red, suspended: C.pink, expired: C.amber,
 }
 const PLAN_COLOR: Record<string, string> = {
-  free: C.sub, trial: C.amber, lite: C.cyan, starter: C.amber,
+  free: C.sub, trial: C.amber, lite: C.cyan, starter: C.cyan,
   basic: C.cyan, standard: C.blue, pro: C.cyan, growth: C.green,
-  scale: C.purple, premium: C.purple,
+  scale: C.purple, premium: C.blue, ultra: C.violet, max: C.violet,
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -94,7 +94,12 @@ function neoPlanName(plan: string | null | undefined): string {
 }
 
 function planColor(plan: string | null | undefined): string {
-  return PLAN_COLOR[plan?.toLowerCase() ?? ''] ?? C.sub
+  if (!plan) return C.sub
+  const p = plan.toLowerCase()
+  if (PLAN_COLOR[p]) return PLAN_COLOR[p]
+  // Normalize to display name (Starter/Standard/Max) and retry
+  const display = neoPlanName(plan).toLowerCase().replace(' trial', '')
+  return PLAN_COLOR[display] ?? C.sub
 }
 function statusColor(status: string | null | undefined): string {
   return STATUS_COLOR[status?.toLowerCase() ?? ''] ?? C.sub
@@ -270,14 +275,14 @@ function MailPlanChanges({ txns }: { txns: { from: string; to: string; date: str
 function UpgradePath({ init, current, label }: { init: string | null; current: string | null; label?: string }) {
   if (!init && !current) return <span style={{ color: C.sub }}>—</span>
   if (!init || init === current) {
-    return <span style={{ color: planColor(current) }}>{cap(current)}</span>
+    return <span style={{ color: planColor(current) }}>{neoPlanName(current)}</span>
   }
   return (
     <span style={{ fontSize: 13 }}>
       {label && <span style={{ color: C.sub, fontSize: 11, marginRight: 4 }}>{label}</span>}
-      <span style={{ color: planColor(init) }}>{cap(init)}</span>
+      <span style={{ color: planColor(init) }}>{neoPlanName(init)}</span>
       <span style={{ color: C.sub, margin: '0 5px' }}>→</span>
-      <span style={{ color: planColor(current) }}>{cap(current)}</span>
+      <span style={{ color: planColor(current) }}>{neoPlanName(current)}</span>
     </span>
   )
 }
@@ -290,9 +295,9 @@ function PlanChanges({ init, current }: { init: string | null; current: string |
   const up   = tier > 0
   return (
     <span style={{ fontSize: 12, color: C.sub }}>
-      · <span style={{ color: planColor(init) }}>{cap(init)}</span>
+      · <span style={{ color: planColor(init) }}>{neoPlanName(init)}</span>
       <span style={{ color: up ? C.green : C.pink, margin: '0 4px' }}>{up ? '↑' : '↓'}</span>
-      <span style={{ color: planColor(current) }}>{cap(current)}</span>
+      <span style={{ color: planColor(current) }}>{neoPlanName(current)}</span>
     </span>
   )
 }
@@ -309,7 +314,7 @@ function MailProductRow({ order, planTxns }: { order: Row; planTxns: { from: str
       >
         <span style={{ fontSize: 16 }}>📧</span>
         <span style={{ color: C.textHi, fontWeight: 600, fontSize: 14 }}>Neo Mail</span>
-        <Badge label={cap(order.plan_type ?? order.plan_name)} color={planColor(order.plan_type)} small />
+        <Badge label={neoPlanName(order.plan_type ?? order.plan_name)} color={planColor(order.plan_type)} small />
         <Badge label={cap(order.status)} color={statusColor(order.status)} small />
         <span style={{ color: C.sub, fontSize: 12 }}>
           {fmtDate(order.created_at)} · {ageTxt} old
@@ -331,7 +336,7 @@ function MailProductRow({ order, planTxns }: { order: Row; planTxns: { from: str
             <KV label="Billing"      value={cap(order.billing_cycle)} />
             <KV label="Plan"         value={<UpgradePath init={order.init_plan_type} current={order.plan_type} />} />
             <KV label="Plan name"    value={order.plan_name} />
-            <KV label="First paid"   value={cap(order.first_payment_plan_type)} color={planColor(order.first_payment_plan_type)} />
+            <KV label="First paid"   value={neoPlanName(order.first_payment_plan_type)} color={planColor(order.first_payment_plan_type)} />
             <KV label="Mailboxes"    value={`${order.active_mailbox_count ?? '—'} active / ${order.mailbox_count ?? '—'} total`} />
             <KV label="Catch-all"    value={order.catch_all_enabled ? '✓ Enabled' : order.catch_all_enabled === 0 ? '✗ Disabled' : '—'} color={order.catch_all_enabled ? C.cyan : undefined} />
             <KV label="Setup type"   value={cap(order.setup_type)} />
@@ -366,7 +371,7 @@ function SiteProductRow({ order }: { order: Row }) {
       >
         <span style={{ fontSize: 16 }}>🌐</span>
         <span style={{ color: C.textHi, fontWeight: 600, fontSize: 14 }}>Neo Site</span>
-        <Badge label={cap(order.plan_type)} color={planColor(order.plan_type)} small />
+        <Badge label={neoPlanName(order.plan_type)} color={planColor(order.plan_type)} small />
         <Badge label={cap(order.status)} color={statusColor(order.status)} small />
         {order.neo_site_status && <Badge label={cap(order.neo_site_status)} color={C.violet} small />}
         <span style={{ color: C.sub, fontSize: 12 }}>
@@ -419,7 +424,7 @@ function DomainProductRow({ order, offering }: { order: Row | null; offering: st
         <span style={{ color: C.textHi, fontWeight: 600, fontSize: 14 }}>Neo Domain</span>
         <Badge label={cap(label)} color={ofColor} small />
         {order && <Badge label={cap(order.status)} color={statusColor(order.status)} small />}
-        {order?.plan_type && <Badge label={cap(order.plan_type)} color={planColor(order.plan_type)} small />}
+        {order?.plan_type && <Badge label={neoPlanName(order.plan_type)} color={planColor(order.plan_type)} small />}
         <span style={{ color: C.sub, fontSize: 12 }}>No upgrade path</span>
         {order && <span style={{ color: C.sub, fontSize: 14, marginLeft: 'auto' }}>{open ? '▼' : '▶'}</span>}
       </div>
@@ -430,7 +435,7 @@ function DomainProductRow({ order, offering }: { order: Row | null; offering: st
             <KV label="Created"    value={fmtDate(order.created_at)} />
             <KV label="Expiry"     value={fmtDate(order.expiry_date)} />
             <KV label="Billing"    value={cap(order.billing_cycle)} />
-            <KV label="Plan"       value={cap(order.plan_type)} color={planColor(order.plan_type)} />
+            <KV label="Plan"       value={neoPlanName(order.plan_type)} color={planColor(order.plan_type)} />
             <KV label="First paid" value={fmtDate(order.first_payment_date)} />
             {order.trial_expiry_date && <KV label="Trial expiry" value={fmtDate(order.trial_expiry_date)} />}
             {order.suspend_date && <KV label="Suspended" value={fmtDate(order.suspend_date)} color={C.pink} />}
@@ -711,7 +716,7 @@ function MailboxCard({
           </div>
           <div style={{ color: C.sub, fontSize: 12, marginTop: 5 }}>
             {ageTxt} old
-            {mbx.dom_plan_type && <><span style={{ margin: '0 6px' }}>·</span><span style={{ color: planColor(mbx.dom_plan_type), fontWeight: 600 }}>{cap(mbx.dom_plan_type)}</span></>}
+            {mbx.dom_plan_type && <><span style={{ margin: '0 6px' }}>·</span><span style={{ color: planColor(mbx.dom_plan_type), fontWeight: 600 }}>{neoPlanName(mbx.dom_plan_type)}</span></>}
             {clientLabel && <><span style={{ margin: '0 6px' }}>·</span><span>{clientLabel} client user</span></>}
             <span style={{ margin: '0 6px' }}>·</span>
             <span>Last 30d email activity: </span>
