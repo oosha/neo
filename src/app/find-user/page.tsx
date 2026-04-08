@@ -93,6 +93,23 @@ function neoPlanName(plan: string | null | undefined): string {
   return isTrial ? `${base} trial` : base
 }
 
+// Returns display label for order/mailbox status, remapping Suspended+Expiry → "Expired"
+function statusLabel(status: string | null, reason: string | null): string {
+  const s = (status ?? '').toLowerCase()
+  const r = (reason ?? '').toLowerCase()
+  if (s === 'suspended' && r === 'expiry') return 'Expired'
+  return cap(status)
+}
+
+// Label for the suspend-date KV ("Suspended" / "Expired" / "Deleted on")
+function suspendDateLabel(status: string | null, reason: string | null): string {
+  const s = (status ?? '').toLowerCase()
+  const r = (reason ?? '').toLowerCase()
+  if (s === 'deleted')                     return 'Deleted on'
+  if (s === 'suspended' && r === 'expiry') return 'Expired on'
+  return 'Suspended'
+}
+
 function planColor(plan: string | null | undefined): string {
   if (!plan) return C.sub
   const p = plan.toLowerCase()
@@ -177,6 +194,7 @@ interface SearchResult {
   topNonTitanClientMap: Record<number, string>
   clientInfoMap:        Record<number, ClientInfo>
   planTxnMap:           Record<number, { from: string; to: string; date: string }[]>
+  anchorDate:           string | null
   error?:               string
 }
 
@@ -315,7 +333,7 @@ function MailProductRow({ order, planTxns }: { order: Row; planTxns: { from: str
         <span style={{ fontSize: 16 }}>📧</span>
         <span style={{ color: C.textHi, fontWeight: 600, fontSize: 14 }}>Neo Mail</span>
         <Badge label={neoPlanName(order.plan_type ?? order.plan_name)} color={planColor(order.plan_type)} small />
-        <Badge label={cap(order.status)} color={statusColor(order.status)} small />
+        <Badge label={statusLabel(order.status, order.suspension_reason)} color={statusColor(order.status)} small />
         <span style={{ color: C.sub, fontSize: 12 }}>
           {fmtDate(order.created_at)} · {ageTxt} old
         </span>
@@ -346,8 +364,10 @@ function MailProductRow({ order, planTxns }: { order: Row; planTxns: { from: str
             <KV label="First sent"   value={fmtDate(order.first_sent_dt ?? order.neo_client_first_sent_dt)} />
             <KV label="Total sent"   value={order.total_mails_sent != null ? Number(order.total_mails_sent).toLocaleString() : '—'} />
             <KV label="Active 7d / 30d / 90d" value={`${order.has_sent_read_last_7d ? '✓' : '✗'} · ${order.has_sent_read_last_30d ? '✓' : '✗'} · ${order.has_sent_read_last_90d ? '✓' : '✗'}`} />
-            {order.suspend_date && <KV label="Suspended" value={fmtDate(order.suspend_date)} color={C.pink} />}
-            {order.suspension_reason && <KV label="Suspension reason" value={cap(order.suspension_reason)} color={C.pink} />}
+            {order.suspend_date && <KV label={suspendDateLabel(order.status, order.suspension_reason)} value={fmtDate(order.suspend_date)} color={C.pink} />}
+            {order.suspension_reason && !((order.status ?? '').toLowerCase() === 'suspended' && (order.suspension_reason ?? '').toLowerCase() === 'expiry') && (
+              <KV label="Suspension reason" value={cap(order.suspension_reason)} color={C.pink} />
+            )}
           </div>
           <div style={{ marginTop: 10, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
             <span style={{ color: C.sub, fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', paddingTop: 2, whiteSpace: 'nowrap' }}>Plan changes</span>
@@ -401,7 +421,7 @@ function SiteProductRow({ order }: { order: Row }) {
             <KV label="First paid"   value={fmtDate(order.first_payment_date)} />
             <KV label="Renewals"     value={order.renewals ?? '—'} />
             <KV label="Trial expiry" value={fmtDate(order.trial_expiry_date)} />
-            {order.suspend_date && <KV label="Suspended" value={fmtDate(order.suspend_date)} color={C.pink} />}
+            {order.suspend_date && <KV label={suspendDateLabel(order.status, null)} value={fmtDate(order.suspend_date)} color={C.pink} />}
           </div>
         </div>
       )}
@@ -438,7 +458,7 @@ function DomainProductRow({ order, offering }: { order: Row | null; offering: st
             <KV label="Plan"       value={neoPlanName(order.plan_type)} color={planColor(order.plan_type)} />
             <KV label="First paid" value={fmtDate(order.first_payment_date)} />
             {order.trial_expiry_date && <KV label="Trial expiry" value={fmtDate(order.trial_expiry_date)} />}
-            {order.suspend_date && <KV label="Suspended" value={fmtDate(order.suspend_date)} color={C.pink} />}
+            {order.suspend_date && <KV label={suspendDateLabel(order.status, null)} value={fmtDate(order.suspend_date)} color={C.pink} />}
           </div>
         </div>
       )}
@@ -675,7 +695,7 @@ function FeatureUsageSection({ features, featureFloor }: { features: FeatureEntr
 // ── Mailbox card ──────────────────────────────────────────────────────────────
 
 function MailboxCard({
-  mbx, activity, features, weekly, accountInfo, topNonTitanClient, clientInfo,
+  mbx, activity, features, weekly, accountInfo, topNonTitanClient, clientInfo, anchorDate,
 }: {
   mbx:               Row
   activity:          { sent: number; read: number; received: number } | undefined
@@ -684,6 +704,7 @@ function MailboxCard({
   accountInfo:       AccountInfo | null
   topNonTitanClient: string | null
   clientInfo:        ClientInfo | null
+  anchorDate:        string | null
 }) {
   const [open, setOpen] = useState(false)
   const displayName = mbx.name || [mbx.first_name, mbx.last_name].filter(Boolean).join(' ') || null
@@ -719,7 +740,7 @@ function MailboxCard({
             {mbx.dom_plan_type && <><span style={{ margin: '0 6px' }}>·</span><span style={{ color: planColor(mbx.dom_plan_type), fontWeight: 600 }}>{neoPlanName(mbx.dom_plan_type)}</span></>}
             {clientLabel && <><span style={{ margin: '0 6px' }}>·</span><span>{clientLabel} client user</span></>}
             <span style={{ margin: '0 6px' }}>·</span>
-            <span>Last 30d email activity: </span>
+            <span>{anchorDate ? `30d before suspension (${anchorDate})` : 'Last 30d'} activity: </span>
             {activity != null ? (
               <>
                 <span>📩 <span style={{ color: C.text }}>{activity.received.toLocaleString()}</span> received</span>
@@ -764,8 +785,10 @@ function MailboxCard({
             {mbx.referral_code             && <KV label="Referral code"       value={mbx.referral_code} />}
             {mbx.referred_invitee_count > 0 && <KV label="Referrals"     value={`${mbx.referred_invitee_count} paid invitees`} />}
             {mbx.referral_reward_earned > 0 && <KV label="Reward earned" value={`$${Number(mbx.referral_reward_earned).toFixed(2)}`} />}
-            {mbx.suspend_date              && <KV label="Suspended"           value={fmtDate(mbx.suspend_date)} color={C.pink} />}
-            {mbx.suspension_reason         && <KV label="Suspension reason"   value={cap(mbx.suspension_reason)} color={C.pink} />}
+            {mbx.suspend_date && <KV label={suspendDateLabel(mbx.status, mbx.suspension_reason)} value={fmtDate(mbx.suspend_date)} color={C.pink} />}
+            {mbx.suspension_reason && !((mbx.status ?? '').toLowerCase() === 'suspended' && (mbx.suspension_reason ?? '').toLowerCase() === 'expiry') && (
+              <KV label="Suspension reason" value={cap(mbx.suspension_reason)} color={C.pink} />
+            )}
           </div>
 
           {/* Clients used */}
@@ -789,7 +812,7 @@ function MailboxCard({
           {/* Weekly activity table */}
           {weekly.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <RowLabel>Email activity — weekly, last 90d</RowLabel>
+              <RowLabel>Email activity — weekly, {anchorDate ? `90 days before suspension (${anchorDate})` : 'last 90d'}</RowLabel>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
                   <thead>
@@ -896,7 +919,7 @@ function NotesSection({ bundleId, initialNote }: { bundleId: number; initialNote
 // ── Bundle card ───────────────────────────────────────────────────────────────
 
 function BundleCard({
-  data, activityMap, featureMap, weeklyMap, accountInfoMap, topNonTitanClientMap, clientInfoMap, pmfData, pmfStatus, cannyPosts, cannyStatus, planTxnMap,
+  data, activityMap, featureMap, weeklyMap, accountInfoMap, topNonTitanClientMap, clientInfoMap, pmfData, pmfStatus, cannyPosts, cannyStatus, planTxnMap, anchorDate,
 }: {
   data:                 BundleData
   activityMap:          SearchResult['activityMap']
@@ -910,6 +933,7 @@ function BundleCard({
   cannyPosts:           CannyPost[]
   cannyStatus:          'idle' | 'loading' | 'loaded' | 'error'
   planTxnMap:           SearchResult['planTxnMap']
+  anchorDate:           string | null
 }) {
   const { bundle, mailOrder, siteOrder, domainOrder, mailboxes, note } = data
   const mailPlanTxns = mailOrder ? (planTxnMap[Number(mailOrder.order_id)] ?? []) : []
@@ -945,7 +969,7 @@ function BundleCard({
                style={{ color: C.textHi, fontWeight: 800, fontSize: 20, textDecoration: 'none', borderBottom: `1px solid ${C.borderHi}` }}>
               {bundle.domain_name}
             </a>
-            <Badge label={cap(bundle.status)} color={bundleStatusColor} />
+            <Badge label={statusLabel(bundle.status, mailOrder?.suspension_reason ?? null)} color={bundleStatusColor} />
             {bundle.neo_offering && <Badge label={cap(bundle.neo_offering)} color={ofColor} />}
             {bundle.product_source && (
               <Badge label={`from ${bundle.product_source}`} color={bundle.product_source === 'site' ? C.violet : C.cyan} />
@@ -960,7 +984,11 @@ function BundleCard({
             {bundle.first_site_publish_dt && <span>Published <span style={{ color: '#4caf82' }}>{fmtDate(bundle.first_site_publish_dt)}</span></span>}
             {bundle.billing_cycle && <span>Billing: <span style={{ color: C.text }}>{cap(bundle.billing_cycle)}</span></span>}
             {bundle.is_paid === 1 && <span style={{ color: C.green }}>✓ Paid</span>}
-            {bundle.suspend_date && <span style={{ color: C.pink }}>Suspended {fmtDate(bundle.suspend_date)}</span>}
+            {bundle.suspend_date && (
+              <span style={{ color: C.pink }}>
+                {suspendDateLabel(bundle.status, mailOrder?.suspension_reason ?? null)} {fmtDate(bundle.suspend_date)}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -1050,6 +1078,7 @@ function BundleCard({
             accountInfo={accountInfoMap?.[Number(mbx.account_id)] ?? null}
             topNonTitanClient={topNonTitanClientMap?.[Number(mbx.account_id)] ?? null}
             clientInfo={clientInfoMap?.[Number(mbx.account_id)] ?? null}
+            anchorDate={anchorDate}
           />
         ))}
       </div>
@@ -1318,6 +1347,7 @@ function FindUser() {
                 cannyPosts={cannyPosts}
                 cannyStatus={cannyStatus}
                 planTxnMap={result.planTxnMap ?? {}}
+                anchorDate={result.anchorDate ?? null}
               />
             ))}
           </>

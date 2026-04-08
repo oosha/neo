@@ -264,6 +264,20 @@ export async function POST(req: Request) {
 
     const accountIds = mailboxRows.map(r => Number(r.account_id)).filter(Boolean)
 
+    // If all mailboxes are suspended/deleted, use their suspend_date as the time reference
+    // so activity windows are relative to before suspension, not today.
+    const suspendedDates = mailboxRows
+      .filter(r => {
+        const s = (r.status ?? '').toLowerCase()
+        return (s === 'suspended' || s === 'deleted') && r.suspend_date
+      })
+      .map(r => String(r.suspend_date).slice(0, 10))
+    const allSuspended = suspendedDates.length > 0 && suspendedDates.length === mailboxRows.length
+    const anchorDate: string | null = allSuspended
+      ? suspendedDates.reduce((max, d) => (d > max ? d : max))
+      : null
+    const dtRef = anchorDate ? `date '${anchorDate}'` : 'current_date'
+
     type WeekRow = { week: string; sent: number; read: number; received: number; calendar: number; search: number; organize: number; nonTitanSent: number; mobileSent: number }
     type ClientInfo = { hasTitan: boolean; hasNonTitan: boolean; majorDevice: string | null; clientForSending: string | null }
     let activityMap:          Record<number, { sent: number; read: number; received: number }> = {}
@@ -307,7 +321,7 @@ export async function POST(req: Request) {
                  CAST(SUM(recv) AS BIGINT) AS received_30d
           FROM flockmail.mailbox_read_sent_recv_mail
           WHERE account_id IN (${idsStr})
-            AND dt >= current_date - interval '30' day
+            AND dt >= ${dtRef} - interval '30' day
           GROUP BY account_id
         `),
         // 90d weekly send/read/recv
@@ -319,7 +333,7 @@ export async function POST(req: Request) {
                  CAST(SUM(recv)  AS BIGINT) AS received
           FROM flockmail.mailbox_read_sent_recv_mail
           WHERE account_id IN (${idsStr})
-            AND dt >= current_date - interval '90' day
+            AND dt >= ${dtRef} - interval '90' day
           GROUP BY account_id, date_trunc('week', dt)
           ORDER BY account_id, week DESC
         `),
@@ -332,7 +346,7 @@ export async function POST(req: Request) {
                  CAST(SUM(CASE WHEN feature IN ('mark_as_read','mark_as_unread','move_to_folder','pin','star','unpin','unstar','custom_folder_created','email_labels') THEN usage ELSE 0 END) AS BIGINT) AS organize
           FROM flockmail.titan_features_usage_v4
           WHERE account_id IN (${idsStr})
-            AND dt >= current_date - interval '90' day
+            AND dt >= ${dtRef} - interval '90' day
             AND feature IN ('calendar_event_creation','calendar_invite_received','advanced_search','search_initiate','mark_as_read','mark_as_unread','move_to_folder','pin','star','unpin','unstar','custom_folder_created','email_labels')
           GROUP BY account_id, date_trunc('week', dt)
           ORDER BY account_id, week DESC
@@ -351,7 +365,7 @@ export async function POST(req: Request) {
                  CAST(SUM(mails_sent) AS BIGINT) AS sent
           FROM flockmail.sent_client_classification
           WHERE account_id IN (${idsStr})
-            AND dt >= current_date - interval '90' day
+            AND dt >= ${dtRef} - interval '90' day
             AND category != 'Titan Client'
           GROUP BY account_id, date_trunc('week', dt), raw_normalized_user_agent
           ORDER BY account_id, week DESC
@@ -363,7 +377,7 @@ export async function POST(req: Request) {
                  CAST(SUM(usage) AS BIGINT) AS sent
           FROM flockmail.titan_features_usage_v4
           WHERE account_id IN (${idsStr})
-            AND dt >= current_date - interval '90' day
+            AND dt >= ${dtRef} - interval '90' day
             AND feature IN ('new_mail_send','reply_mail_send','forward_mail_send','reply_all_mail_send')
             AND device IN ('ios','android')
           GROUP BY account_id, date_trunc('week', dt)
@@ -541,6 +555,7 @@ export async function POST(req: Request) {
       topNonTitanClientMap,
       clientInfoMap,
       planTxnMap,
+      anchorDate,
     })
 
   } catch (err) {
