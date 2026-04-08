@@ -401,9 +401,9 @@ function DomainProductRow({ order, offering }: { order: Row | null; offering: st
 // ── PMF row ───────────────────────────────────────────────────────────────────
 
 const PMF_SCORE_COLOR: Record<string, string> = {
-  very_disappointed:     C.pink,
+  very_disappointed:     '#4caf82',
   somewhat_disappointed: C.amber,
-  not_disappointed:      C.sub,
+  not_disappointed:      C.pink,
 }
 const PMF_SCORE_LABEL: Record<string, string> = {
   very_disappointed:     'Very disappointed',
