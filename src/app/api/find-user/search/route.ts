@@ -271,7 +271,7 @@ export async function POST(req: Request) {
     for (const r of mailboxRows) {
       const id = Number(r.account_id)
       if (!id) continue
-      const s = (r.status ?? '').toLowerCase()
+      const s = (String(r.status ?? '')).toLowerCase()
       anchorByAccount[id] = (s === 'suspended' || s === 'deleted') && r.suspend_date
         ? String(r.suspend_date).slice(0, 10)
         : today
